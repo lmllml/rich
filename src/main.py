@@ -9,9 +9,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_fetcher import BinanceDataFetcher
-from factor_strategy import FactorAnalyzer
-from adaptive_factor_strategy import AdaptiveFactorAnalyzer
-from enhanced_factor_strategy import EnhancedFactorAnalyzer
+from strategies.factor_strategy import FactorAnalyzer
+from strategies.adaptive_factor_strategy import AdaptiveFactorAnalyzer
+from strategies.enhanced_factor_strategy import EnhancedFactorAnalyzer
 from paths import OUTPUT_DIR
 
 
@@ -163,17 +163,17 @@ def compare_strategies(data):
     # 运行传统策略
     print("\n1. 运行传统固定权重策略...")
     traditional_analyzer = FactorAnalyzer(data)
-    traditional_results = traditional_analyzer.run_backtest(initial_cash=10000.0)
+    traditional_results = traditional_analyzer.run_backtest(initial_cash=100000.0)
     
     # 运行自适应策略（高相关因子）
     print("\n2. 运行自适应因子策略（高相关因子组合）...")
     adaptive_analyzer = AdaptiveFactorAnalyzer(data)
-    adaptive_results = adaptive_analyzer.run_backtest(initial_cash=10000.0)
+    adaptive_results = adaptive_analyzer.run_backtest(initial_cash=100000.0)
     
     # 运行增强版策略（低相关因子）
     print("\n3. 运行增强版策略（低相关性因子组合）...")
     enhanced_analyzer = EnhancedFactorAnalyzer(data)
-    enhanced_results = enhanced_analyzer.run_backtest(initial_cash=10000.0)
+    enhanced_results = enhanced_analyzer.run_backtest(initial_cash=100000.0)
     
     # 对比结果
     print("\n=== 策略对比结果 ===")
@@ -289,14 +289,17 @@ def plot_adaptive_analysis(analysis_data):
 
 def main():
     """主函数"""
-    print("=== 币安 ETHUSDT 自适应因子分析系统 ===")
+    symbol = 'ETH/USDT'
+    timeframe = '4h'
+    days = 730
+    print(f"=== 币安 {symbol} {timeframe} 因子分析系统 ===")
     
     # 1. 获取数据
-    print("\n1. 正在获取 ETHUSDT 数据...")
+    print(f"\n1. 正在获取 {symbol} 数据...")
     fetcher = BinanceDataFetcher()
     
     # 获取最近 730 天的4小时数据
-    data = fetcher.fetch_recent_with_cache(symbol='ETH/USDT', timeframe='4h', days=730)
+    data = fetcher.fetch_recent_with_cache(symbol=symbol, timeframe=timeframe, days=days)
     
     if data.empty:
         print("❌ 数据获取失败，请检查网络连接或API配置")
