@@ -365,15 +365,35 @@ class BinanceDataFetcher:
         interval_delta = timedelta(minutes=interval_minutes)
         
         # 期望覆盖的时间范围：允许指定边界；未指定时使用数据边界
-        start_time = expected_since if expected_since is not None else data.index.min()
-        end_time = expected_until if expected_until is not None else data.index.max()
+        raw_start = expected_since if expected_since is not None else data.index.min()
+        raw_end = expected_until if expected_until is not None else data.index.max()
         
         print(f"📊 数据完整性检查:")
         print(f"   时间框架: {timeframe}")
-        print(f"   数据范围: {start_time} 到 {end_time}")
+        
+        # 将期望边界对齐到时间框架网格，避免把全部数据误判为缺失
+        # 例如 4h 框架，网格为 00:00/04:00/08:00/12:00/16:00/20:00
+        import math
+        epoch = datetime(1970, 1, 1)
+        interval_minutes = timeframe_minutes[timeframe]
+        interval_seconds = interval_minutes * 60
+        
+        def align(dt: datetime, mode: str) -> datetime:
+            delta_sec = (dt - epoch).total_seconds()
+            if mode == 'floor':
+                aligned = math.floor(delta_sec / interval_seconds) * interval_seconds
+            else:  # ceil
+                aligned = math.ceil(delta_sec / interval_seconds) * interval_seconds
+            return epoch + timedelta(seconds=aligned)
+        
+        start_time = align(raw_start, 'ceil')
+        end_time = align(raw_end, 'floor')
+        
+        print(f"   数据范围(对齐前): {raw_start} 到 {raw_end}")
+        print(f"   数据范围(对齐后): {start_time} 到 {end_time}")
         print(f"   实际记录数: {len(data)}")
         
-        # 生成期望的时间序列
+        # 生成期望的时间序列（严格在网格上）
         expected_times = []
         current_time = start_time
         while current_time <= end_time:
@@ -415,7 +435,7 @@ class BinanceDataFetcher:
             missing_ranges.append((range_start, range_end))
         
         missing_count = len(missing_times)
-        completeness = (expected_count - missing_count) / expected_count * 100
+        completeness = (expected_count - missing_count) / expected_count * 100 if expected_count > 0 else 100.0
         
         print(f"⚠️ 数据不完整:")
         print(f"   缺失记录数: {missing_count}")
@@ -430,6 +450,12 @@ class BinanceDataFetcher:
         
         if len(missing_ranges) > 5:
             print(f"   ... 还有 {len(missing_ranges) - 5} 个缺失段")
+        
+        # 边界提示：如果原始起点不在网格上，提示但不计入缺口（无实际K线可补）
+        if expected_since is not None and raw_start != start_time:
+            print(f"   注意: 期望起点 {raw_start} 未对齐到 {timeframe} 网格，已对齐为 {start_time}")
+        if expected_until is not None and raw_end != end_time:
+            print(f"   注意: 期望终点 {raw_end} 未对齐到 {timeframe} 网格，已对齐为 {end_time}")
         
         return False, missing_ranges
     

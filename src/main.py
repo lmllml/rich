@@ -552,9 +552,9 @@ def plot_adaptive_analysis(analysis_data, output_manager: RunOutputManager):
 
 def main():
     """主函数"""
-    symbol = 'ETH/USDT'
+    symbol = 'BTC/USDT'
     timeframe = '4h'
-    days = 1460
+    days = 365
     print(f"=== 币安 {symbol} {timeframe} 因子分析系统 ===")
     
     # 0. 创建输出管理器
