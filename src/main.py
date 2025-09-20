@@ -10,7 +10,7 @@ warnings.filterwarnings('ignore')
 
 from data_fetcher import BinanceDataFetcher
 from factor_strategy import FactorAnalyzer
-from chart_utils import create_enhanced_factor_chart
+from paths import OUTPUT_DIR
 
 
 def analyze_factor_performance(factor_data: pd.DataFrame):
@@ -52,17 +52,12 @@ def analyze_factor_performance(factor_data: pd.DataFrame):
 
 def plot_factor_analysis(factor_data: pd.DataFrame):
     """绘制因子分析图表"""
-    # 配置中文字体
-    try:
-        # 尝试设置中文字体
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans']
-        plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-    except:
-        # 如果字体设置失败，使用英文标题
-        print("警告：中文字体设置失败，将使用英文标题")
+    plt.rcParams['font.sans-serif'] = ['SimHei']
+    plt.rcParams['axes.unicode_minus'] = False 
     
     fig, axes = plt.subplots(3, 2, figsize=(15, 12))
-    fig.suptitle('ETHUSDT Factor Analysis', fontsize=16)
+    fig.suptitle('ETHUSDT 因子分析报告', fontsize=16,
+                 bbox=dict(facecolor='none', edgecolor='none', pad=0))
     
     # 价格和综合信号
     ax1 = axes[0, 0]
@@ -70,9 +65,10 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
     ax1_twin = ax1.twinx()
     ax1_twin.plot(factor_data.index, factor_data['combined_signal'], 
                   label='Combined Signal', color='red', alpha=0.7)
-    ax1.set_title('Price vs Combined Signal')
-    ax1.set_ylabel('Price (USDT)')
-    ax1_twin.set_ylabel('Combined Signal')
+    ax1.set_title('价格 vs 综合信号',
+                  bbox=dict(facecolor='none', edgecolor='none', pad=0))
+    ax1.set_ylabel('价格 (USDT)')
+    ax1_twin.set_ylabel('综合信号')
     ax1.legend(loc='upper left')
     ax1_twin.legend(loc='upper right')
     
@@ -81,7 +77,8 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
     ax2.plot(factor_data.index, factor_data['rsi'], label='RSI', color='blue')
     ax2.axhline(y=70, color='r', linestyle='--', alpha=0.5, label='Overbought')
     ax2.axhline(y=30, color='g', linestyle='--', alpha=0.5, label='Oversold')
-    ax2.set_title('RSI Indicator')
+    ax2.set_title('RSI 相对强弱指标',
+                  bbox=dict(facecolor='none', edgecolor='none', pad=0))
     ax2.set_ylabel('RSI')
     ax2.legend()
     
@@ -89,8 +86,9 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
     ax3 = axes[1, 0]
     ax3.plot(factor_data.index, factor_data['macd'], label='MACD', color='purple')
     ax3.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-    ax3.set_title('MACD Indicator')
-    ax3.set_ylabel('MACD')
+    ax3.set_title('MACD 指标',
+                  bbox=dict(facecolor='none', edgecolor='none', pad=0))
+    ax3.set_ylabel('MACD 值')
     ax3.legend()
     
     # 布林带
@@ -100,29 +98,32 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
     ax4.plot(factor_data.index, factor_data['bb_lower'], label='BB Lower', color='green', alpha=0.7)
     ax4.fill_between(factor_data.index, factor_data['bb_lower'], factor_data['bb_upper'], 
                      alpha=0.1, color='gray')
-    ax4.set_title('Bollinger Bands')
-    ax4.set_ylabel('Price (USDT)')
+    ax4.set_title('布林带',
+                  bbox=dict(facecolor='none', edgecolor='none', pad=0))
+    ax4.set_ylabel('价格 (USDT)')
     ax4.legend()
     
     # 动量指标
     ax5 = axes[2, 0]
     ax5.plot(factor_data.index, factor_data['momentum'], label='Momentum', color='orange')
     ax5.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-    ax5.set_title('Momentum Indicator')
-    ax5.set_ylabel('Momentum')
+    ax5.set_title('动量指标',
+                  bbox=dict(facecolor='none', edgecolor='none', pad=0))
+    ax5.set_ylabel('动量')
     ax5.legend()
     
     # 仓位变化
     ax6 = axes[2, 1]
     ax6.plot(factor_data.index, factor_data['position'], label='Position', color='brown')
-    ax6.set_title('Position Changes')
-    ax6.set_ylabel('Position Size')
+    ax6.set_title('持仓变化',
+                  bbox=dict(facecolor='none', edgecolor='none', pad=0))
+    ax6.set_ylabel('持仓数量')
     ax6.legend()
     
     plt.tight_layout()
     import os
-    os.makedirs('../output', exist_ok=True)
-    plt.savefig('../output/factor_analysis_charts.png', dpi=300, bbox_inches='tight', 
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    plt.savefig(str(OUTPUT_DIR / 'factor_analysis_charts.png'), dpi=300, bbox_inches='tight', 
                 facecolor='white', edgecolor='none')
     print("图表已保存为 output/factor_analysis_charts.png")
 
@@ -175,40 +176,29 @@ def main():
         correlation_matrix = analyze_factor_performance(factor_data)
         
         # 5. 绘制分析图表
-        print("\n5. 正在生成增强版分析图表...")
-        try:
-            import matplotlib
-            matplotlib.use('Agg')  # 使用非交互式后端
-            create_enhanced_factor_chart(factor_data, '../output/factor_analysis_charts.png')
-            print("✅ 增强版图表已保存")
-        except Exception as e:
-            print(f"绘图时发生错误: {e}")
-            print("尝试使用基础版本图表...")
-            try:
-                plot_factor_analysis(factor_data)
-                print("✅ 基础版图表已保存")
-            except Exception as e2:
-                print(f"基础版图表也失败: {e2}")
-                print("跳过绘图步骤，继续保存数据")
-        
+        print("\n5. 正在生成分析图表...")
+
+        plot_factor_analysis(factor_data)
+        print("✅ 分析图表已保存")
+
         # 6. 保存结果
         print("\n6. 正在保存分析结果...")
         
         # 确保输出目录存在
         import os
-        os.makedirs('../output', exist_ok=True)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         
         # 保存因子数据
-        factor_data.to_csv('../output/factor_analysis_results.csv')
+        factor_data.to_csv(OUTPUT_DIR / 'factor_analysis_results.csv')
         print("✅ 因子分析结果已保存到 output/factor_analysis_results.csv")
         
         # 保存相关性矩阵
-        correlation_matrix.to_csv('../output/factor_correlation_matrix.csv')
+        correlation_matrix.to_csv(OUTPUT_DIR / 'factor_correlation_matrix.csv')
         print("✅ 因子相关性矩阵已保存到 output/factor_correlation_matrix.csv")
         
         # 保存回测结果
         results_df = pd.DataFrame([results])
-        results_df.to_csv('../output/backtest_results.csv', index=False)
+        results_df.to_csv(OUTPUT_DIR / 'backtest_results.csv', index=False)
         print("✅ 回测结果已保存到 output/backtest_results.csv")
     
     print("\n=== 分析完成 ===")
