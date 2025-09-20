@@ -175,7 +175,24 @@ class BinanceDataFetcher:
             包含OHLCV数据的DataFrame
         """
         since = datetime.now() - timedelta(days=days)
-        return self.fetch_ohlcv_data(symbol, timeframe, limit=days*24, since=since)
+        # 根据时间框架计算数据点数量
+        if timeframe == '1h':
+            limit = days * 24  # 每天24小时
+        elif timeframe == '4h':
+            limit = days * 6   # 每天6个4小时K线
+        elif timeframe == '12h':
+            limit = days * 2   # 每天2个12小时K线
+        elif timeframe == '1d':
+            limit = days * 1   # 每天1个日K线
+        elif timeframe == '15m':
+            limit = days * 24 * 4  # 每天96个15分钟K线
+        elif timeframe == '5m':
+            limit = days * 24 * 12  # 每天288个5分钟K线
+        elif timeframe == '1m':
+            limit = days * 24 * 60  # 每天1440个1分钟K线
+        else:
+            limit = days * 500  # 其他时间框架的默认值
+        return self.fetch_ohlcv_data(symbol, timeframe, limit=limit, since=since)
 
     def fetch_recent_with_cache(
         self,
@@ -187,7 +204,23 @@ class BinanceDataFetcher:
         cache = MarketDataCache()
         since = datetime.now() - timedelta(days=days)
         since_ms = int(since.timestamp() * 1000)
-        limit = days * (24 if timeframe == '1h' else 500)
+        # 根据时间框架计算数据点数量
+        if timeframe == '1h':
+            limit = days * 24  # 每天24小时
+        elif timeframe == '4h':
+            limit = days * 6   # 每天6个4小时K线
+        elif timeframe == '12h':
+            limit = days * 2   # 每天2个12小时K线
+        elif timeframe == '1d':
+            limit = days * 1   # 每天1个日K线
+        elif timeframe == '15m':
+            limit = days * 24 * 4  # 每天96个15分钟K线
+        elif timeframe == '5m':
+            limit = days * 24 * 12  # 每天288个5分钟K线
+        elif timeframe == '1m':
+            limit = days * 24 * 60  # 每天1440个1分钟K线
+        else:
+            limit = days * 500  # 其他时间框架的默认值
 
         # 1) 先读缓存
         cached = cache.load_range(symbol, timeframe, since_ms, limit)

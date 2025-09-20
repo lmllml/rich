@@ -1,6 +1,7 @@
 # 运行结果目录
 output/
 results/
+cache/
 
 # Python 缓存文件
 __pycache__/
