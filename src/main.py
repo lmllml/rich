@@ -269,18 +269,20 @@ def compare_strategies(data):
     return traditional_results, adaptive_results, enhanced_results, traditional_analyzer, adaptive_analyzer, enhanced_analyzer
 
 
-def plot_individual_strategy_portfolios(analyzers: Dict[str, Any], output_manager: RunOutputManager):
-    """绘制每个策略的单独资产变化图表"""
+def plot_individual_strategy_portfolios(strategy_results: Dict[str, Dict[str, Any]], output_manager: RunOutputManager):
+    """绘制每个策略的单独资产变化图表
+    说明：直接使用回测结果中的 portfolio_history，避免在绘图阶段访问 Backtrader 实例。
+    """
     plt.rcParams['font.sans-serif'] = ['SimHei']
     plt.rcParams['axes.unicode_minus'] = False 
     
     # 颜色方案
     colors = {'传统策略': '#1f77b4', '自适应策略': '#ff7f0e', '增强策略': '#2ca02c'}
     
-    for strategy_name, analyzer in analyzers.items():
+    for strategy_name, results in strategy_results.items():
         try:
-            # 获取资产变化历史
-            portfolio_history = analyzer.get_portfolio_history()
+            # 获取资产变化历史（直接来自回测结果）
+            portfolio_history = results.get('portfolio_history', {}) if isinstance(results, dict) else {}
             
             if not portfolio_history or not portfolio_history.get('dates') or not portfolio_history.get('portfolio_values'):
                 print(f"⚠️ {strategy_name}没有资产变化数据，跳过图表生成")
@@ -552,7 +554,7 @@ def main():
     """主函数"""
     symbol = 'ETH/USDT'
     timeframe = '4h'
-    days = 730
+    days = 1460
     print(f"=== 币安 {symbol} {timeframe} 因子分析系统 ===")
     
     # 0. 创建输出管理器
@@ -636,19 +638,14 @@ def main():
     
     # 绘制每个策略的单独资产变化图表
     print("正在生成各策略资产变化图表...")
-    analyzers = {
-        '传统策略': traditional_analyzer,
-        '自适应策略': adaptive_analyzer,
-        '增强策略': enhanced_analyzer
-    }
-    plot_individual_strategy_portfolios(analyzers, output_manager)
-    
-    # 绘制策略资产变化对比图表
     strategy_results_for_plot = {
         '传统策略': traditional_results,
         '自适应策略': adaptive_results,
         '增强策略': enhanced_results
     }
+    plot_individual_strategy_portfolios(strategy_results_for_plot, output_manager)
+    
+    # 绘制策略资产变化对比图表
     plot_portfolio_comparison(strategy_results_for_plot, output_manager)
     
     if not factor_data.empty:

@@ -235,41 +235,43 @@ class BinanceDataFetcher:
             print(f"缓存数据充足，返回 {len(cached_in_range)} 条记录")
             return cached_in_range.head(expected_records)
 
-        # 3) 缓存不足，需要循环获取
+        # 3) 缓存不足，需要循环获取（向更早的时间回补）
         print(f"缓存不足，需要循环获取更多数据...")
         
         all_data = []
         if not cached_in_range.empty:
             all_data.append(cached_in_range)
         
-        # 从最早需要的时间开始，分批向前获取
-        current_end_time = datetime.now()
-        batch_size = 1000  # 每批最多1000条
-        total_collected = len(cached_in_range)
+        # 以缓存中最早一根K线为界，向更早方向抓取
+        timeframe_minutes = {
+            '1m': 1, '5m': 5, '15m': 15, '30m': 30,
+            '1h': 60, '4h': 240, '12h': 720, '1d': 1440,
+        }
+        interval_delta = timedelta(minutes=timeframe_minutes.get(timeframe, 60))
+        earliest_time = cached_in_range.index.min() if not cached_in_range.empty else None
+        batch_size = 1000  # 单批最大条数
         batch_count = 0
         
         import time
         
-        while total_collected < expected_records and batch_count < 10:  # 最多10批，避免无限循环
+        # 循环条件：尚未覆盖到起始时间，且尚未达到期望条数，且批次数限制内
+        while (
+            batch_count < 20 and
+            (earliest_time is None or earliest_time > since)
+        ):
             batch_count += 1
-            
-            # 计算这批需要获取多少条
-            remaining = expected_records - total_collected
-            current_batch_size = min(batch_size, remaining + 200)  # 多获取一些避免边界问题
-            
+            # 目标批量：尽量满批，多取少补
+            current_batch_size = batch_size
             print(f"第{batch_count}批：尝试获取 {current_batch_size} 条记录...")
             
-            # 计算这批数据的开始时间
-            if timeframe == '4h':
-                batch_days = (current_batch_size // 6) + 10  # 4小时线，每天6条，多加10天缓冲
-            elif timeframe == '1h':
-                batch_days = (current_batch_size // 24) + 5   # 1小时线，每天24条
-            elif timeframe == '1d':
-                batch_days = current_batch_size + 10          # 日线
+            # 计算 since：为了不留空洞，使用“current_batch_size - overlap”策略
+            overlap_records = 50
+            if earliest_time is None:
+                # 没有缓存，直接从目标起点开始
+                batch_since = since
             else:
-                batch_days = 100  # 其他时间框架的默认值
-                
-            batch_since = current_end_time - timedelta(days=batch_days)
+                step_records = max(current_batch_size - overlap_records, 1)
+                batch_since = earliest_time - interval_delta * step_records
             
             # 获取这批数据
             batch_data = self.fetch_ohlcv_data(
@@ -280,33 +282,44 @@ class BinanceDataFetcher:
             )
             
             if batch_data.empty:
-                print(f"第{batch_count}批获取失败，停止获取")
+                print(f"第{batch_count}批获取失败或无数据，停止获取")
                 break
             
-            # 过滤到目标时间范围
-            batch_in_range = batch_data[batch_data.index >= since]
-            if not batch_in_range.empty:
-                all_data.append(batch_in_range)
-                total_collected += len(batch_in_range)
-                print(f"第{batch_count}批获取到 {len(batch_in_range)} 条有效记录，总计 {total_collected} 条")
+            # 仅保留目标时间范围内且早于当前已知最早边界的数据，避免重复
+            if earliest_time is None:
+                batch_filtered = batch_data[batch_data.index >= since]
+            else:
+                batch_filtered = batch_data[(batch_data.index >= since) & (batch_data.index < earliest_time)]
             
-            # 更新下次获取的结束时间
-            current_end_time = batch_data.index.min() - timedelta(hours=1)
+            if not batch_filtered.empty:
+                all_data.append(batch_filtered)
+                # 更新最早边界为“本批最早时间”，确保下次 since 基于真实边界计算
+                earliest_time = batch_filtered.index.min()
+                print(f"第{batch_count}批获取到 {len(batch_filtered)} 条有效记录，最早时间推进至 {earliest_time}")
+            else:
+                print(f"第{batch_count}批无新增有效记录（可能为完全重叠），继续向前尝试")
+                # 如果没有新的更早数据，尝试直接把 earliest_time 再向前推进一段，避免停滞
+                if earliest_time is not None:
+                    earliest_time = earliest_time - interval_delta * max((current_batch_size // 4), 1)
             
-            # 如果已经获取到足够早的数据，停止
-            if current_end_time <= since:
+            # 已覆盖到目标起点即可退出
+            if earliest_time is not None and earliest_time <= since:
                 break
-                
+            
             # 避免请求过快
-            time.sleep(0.2)
+            time.sleep(0.25)
         
         # 4) 合并所有数据
         if all_data:
             combined = pd.concat(all_data).sort_index()
             # 去重，保留最新的数据
             combined = combined[~combined.index.duplicated(keep='last')]
-            # 确保在目标时间范围内
+            # 仅保留目标时间范围
             combined = combined[combined.index >= since]
+            
+            # 如果数据多于期望数量，截断到期望规模（从最新往回）
+            if len(combined) > expected_records:
+                combined = combined.tail(expected_records)
             
             print(f"最终获得 {len(combined)} 条记录，时间范围：{combined.index.min()} 到 {combined.index.max()}")
             
@@ -317,7 +330,7 @@ class BinanceDataFetcher:
             print("未能获取到新数据，返回缓存数据")
             return cached_in_range
     
-    def check_data_integrity(self, data: pd.DataFrame, timeframe: str, expected_days: int) -> Tuple[bool, List[Tuple[datetime, datetime]]]:
+    def check_data_integrity(self, data: pd.DataFrame, timeframe: str, expected_days: int, expected_since: Optional[datetime] = None, expected_until: Optional[datetime] = None) -> Tuple[bool, List[Tuple[datetime, datetime]]]:
         """
         检查K线数据的完整性，返回是否完整和缺失的时间段
         
@@ -351,9 +364,9 @@ class BinanceDataFetcher:
         interval_minutes = timeframe_minutes[timeframe]
         interval_delta = timedelta(minutes=interval_minutes)
         
-        # 获取数据的时间范围
-        start_time = data.index.min()
-        end_time = data.index.max()
+        # 期望覆盖的时间范围：允许指定边界；未指定时使用数据边界
+        start_time = expected_since if expected_since is not None else data.index.min()
+        end_time = expected_until if expected_until is not None else data.index.max()
         
         print(f"📊 数据完整性检查:")
         print(f"   时间框架: {timeframe}")
@@ -444,7 +457,7 @@ class BinanceDataFetcher:
         for i, (start_time, end_time) in enumerate(missing_ranges):
             print(f"   补充缺失段 {i+1}/{len(missing_ranges)}: {start_time} 到 {end_time}")
             
-            # 计算需要获取的数据量
+            # 粒度与步长
             timeframe_minutes = {
                 '1m': 1, '5m': 5, '15m': 15, '30m': 30,
                 '1h': 60, '4h': 240, '12h': 720, '1d': 1440,
@@ -455,46 +468,57 @@ class BinanceDataFetcher:
                 continue
             
             interval_minutes = timeframe_minutes[timeframe]
-            duration = end_time - start_time
-            expected_records = int(duration.total_seconds() / 60 / interval_minutes) + 1
+            interval_delta = timedelta(minutes=interval_minutes)
             
-            # 扩展时间范围以确保获取到边界数据
-            extended_start = start_time - timedelta(hours=24)  # 向前扩展24小时
-            extended_end = end_time + timedelta(hours=24)      # 向后扩展24小时
+            # 分页循环抓取直到覆盖整个缺口
+            current_since = start_time - interval_delta * 2  # 小缓冲避免边界遗漏
+            page_count = 0
+            last_progress_ts = None
             
-            try:
-                # 尝试从API获取数据
-                missing_data = self.fetch_ohlcv_data(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    limit=min(expected_records + 100, 1000),  # 限制单次请求量
-                    since=extended_start
-                )
-                
-                if not missing_data.empty:
-                    # 过滤到目标时间范围
-                    filtered_data = missing_data[
-                        (missing_data.index >= start_time) & 
-                        (missing_data.index <= end_time)
-                    ]
-                    
-                    if not filtered_data.empty:
-                        all_data.append(filtered_data)
-                        print(f"   ✅ 成功补充 {len(filtered_data)} 条记录")
-                        
-                        # 保存到缓存
-                        cache.upsert(symbol, timeframe, missing_data)
-                    else:
-                        print(f"   ⚠️ 获取的数据不在目标时间范围内")
-                else:
-                    print(f"   ❌ 未能获取到数据")
-                    
-            except Exception as e:
-                print(f"   ❌ 获取数据时出错: {e}")
-            
-            # 添加延迟避免API限制
             import time
-            time.sleep(0.5)
+            
+            while current_since <= end_time and page_count < 50:  # 给出合理上限防止死循环
+                page_count += 1
+                try:
+                    batch = self.fetch_ohlcv_data(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        limit=1000,
+                        since=current_since
+                    )
+                    
+                    if batch.empty:
+                        print(f"      第{page_count}页无数据，停止本缺口抓取")
+                        break
+                    
+                    # 过滤到目标缺口范围
+                    batch_filtered = batch[(batch.index >= start_time) & (batch.index <= end_time)]
+                    if not batch_filtered.empty:
+                        all_data.append(batch_filtered)
+                        print(f"      第{page_count}页补入 {len(batch_filtered)} 条")
+                        # 写回缓存（使用原batch）
+                        cache.upsert(symbol, timeframe, batch)
+                    
+                    # 推进游标
+                    max_ts = batch.index.max()
+                    if last_progress_ts is not None and max_ts <= last_progress_ts:
+                        # 没有前进，强行推进一格防止卡住
+                        max_ts = last_progress_ts + interval_delta
+                    last_progress_ts = max_ts
+                    current_since = max_ts + interval_delta
+                    
+                    # 已覆盖到缺口末尾则退出
+                    if current_since > end_time:
+                        break
+                    
+                    # 限速
+                    time.sleep(0.25)
+                except Exception as e:
+                    print(f"      抓取第{page_count}页出错: {e}")
+                    break
+            
+            # 小间隔避免过于频繁
+            time.sleep(0.3)
         
         # 合并所有数据
         if len(all_data) > 1:
@@ -530,8 +554,9 @@ class BinanceDataFetcher:
             print("❌ 无法获取基础数据")
             return data
         
-        # 2. 检查数据完整性
-        is_complete, missing_ranges = self.check_data_integrity(data, timeframe, days)
+        # 2. 检查数据完整性（覆盖目标起点到现有末尾）
+        expected_since = datetime.now() - timedelta(days=days)
+        is_complete, missing_ranges = self.check_data_integrity(data, timeframe, days, expected_since=expected_since)
         
         # 3. 如果数据不完整，补充缺失数据
         if not is_complete and missing_ranges:
