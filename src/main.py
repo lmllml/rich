@@ -17,6 +17,7 @@ from strategies.adaptive_factor_strategy import AdaptiveFactorAnalyzer
 from strategies.enhanced_factor_strategy import EnhancedFactorAnalyzer
 from output_manager import RunOutputManager
 from metrics_extractor import PerformanceMetricsExtractor, FactorAnalysisExtractor
+from factor_selector import FactorCorrelationAnalyzer
 
 
 def analyze_factor_performance(factor_data: pd.DataFrame):
@@ -628,6 +629,12 @@ def main():
         
         # 保存因子数据
         output_manager.save_dataframe(factor_data, 'factor_data.csv')
+        
+        # 4.1 相关性选因子（多候选因子）
+        ranking_df, ranking_path = FactorCorrelationAnalyzer.analyze_and_save(factor_data, output_manager)
+        if not ranking_df.empty:
+            factor_analysis['top_factors'] = ranking_df.head(20).to_dict(orient='records')
+            print(f"✅ 最相关因子排名已保存: {ranking_path}")
         
         # 保存权重变化（如果有）
         if 'weights' in analysis_data and not analysis_data['weights'].empty:

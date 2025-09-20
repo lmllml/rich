@@ -266,6 +266,8 @@ class EnhancedAdaptiveFactorStrategy(bt.Strategy):
         ('signal_threshold', 0.3),
         ('position_size', 0.95),
         ('analyzer_ref', None),
+        ('stability_window', 20),
+        ('stability_threshold', 0.02),
     )
     
     def __init__(self):
@@ -316,8 +318,9 @@ class EnhancedAdaptiveFactorStrategy(bt.Strategy):
         # 记录数据
         self._record_data(current_date, current_price, current_factors)
         
-        # 执行交易逻辑
-        self._execute_trading_logic()
+        # 执行交易逻辑（仅当权重稳定且过了热身期）
+        if self._weights_stable():
+            self._execute_trading_logic()
         
     def _get_current_factors(self) -> Dict[str, float]:
         """获取当前因子值"""
@@ -386,6 +389,28 @@ class EnhancedAdaptiveFactorStrategy(bt.Strategy):
                 
         elif self.combined_signal < -self.params.signal_threshold and self.position:
             self.sell(size=self.position.size)
+
+    def _weights_stable(self) -> bool:
+        """判断权重是否稳定，且热身期已完成"""
+        # 热身期：需要足够的因子历史来计算有效性
+        if len(self.effectiveness_analyzer.factor_history) < self.params.lookback_period:
+            return False
+        window = self.params.stability_window
+        if len(self.factor_history) < max(window, 2):
+            return False
+        # 取最近 window 根的权重变化平均幅度
+        weight_keys = list(self.factor_history[-1]['weights'].keys()) if self.factor_history else []
+        if not weight_keys:
+            return False
+        deltas = []
+        for i in range(1, min(window, len(self.factor_history))):
+            prev_w = self.factor_history[-i-1]['weights']
+            curr_w = self.factor_history[-i]['weights']
+            delta = sum(abs(curr_w.get(k, 0.0) - prev_w.get(k, 0.0)) for k in weight_keys) / max(len(weight_keys), 1)
+            deltas.append(delta)
+        import numpy as _np
+        avg_delta = float(_np.mean(deltas)) if deltas else 1.0
+        return avg_delta <= self.params.stability_threshold
     
     def get_analysis_data(self) -> Dict[str, pd.DataFrame]:
         """获取分析数据"""
