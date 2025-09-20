@@ -40,6 +40,18 @@ class RunOutputManager:
         
         print(f"✅ 创建运行输出目录: {self.run_dir}")
     
+    def save_run_params(self, params: Dict[str, Any]) -> Path:
+        """保存本次运行的参数到 run 目录下的 run_params.json"""
+        filepath = self.run_dir / 'run_params.json'
+        serializable = self._make_serializable({
+            'run_timestamp': self.run_timestamp,
+            'params': params,
+        })
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(serializable, f, ensure_ascii=False, indent=2)
+        print(f"✅ 保存运行参数: {filepath}")
+        return filepath
+    
     def get_chart_path(self, filename: str) -> Path:
         """获取图表文件路径"""
         return self.charts_dir / filename
