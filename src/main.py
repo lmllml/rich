@@ -11,6 +11,7 @@ warnings.filterwarnings('ignore')
 from data_fetcher import BinanceDataFetcher
 from factor_strategy import FactorAnalyzer
 from adaptive_factor_strategy import AdaptiveFactorAnalyzer
+from enhanced_factor_strategy import EnhancedFactorAnalyzer
 from paths import OUTPUT_DIR
 
 
@@ -156,23 +157,34 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
 
 
 def compare_strategies(data):
-    """对比传统策略和自适应策略"""
-    print("\n=== 策略对比测试 ===")
+    """对比三种策略"""
+    print("\n=== 三种策略对比测试 ===")
     
     # 运行传统策略
     print("\n1. 运行传统固定权重策略...")
     traditional_analyzer = FactorAnalyzer(data)
     traditional_results = traditional_analyzer.run_backtest(initial_cash=10000.0)
     
-    # 运行自适应策略
-    print("\n2. 运行自适应因子策略...")
+    # 运行自适应策略（高相关因子）
+    print("\n2. 运行自适应因子策略（高相关因子组合）...")
     adaptive_analyzer = AdaptiveFactorAnalyzer(data)
     adaptive_results = adaptive_analyzer.run_backtest(initial_cash=10000.0)
     
+    # 运行增强版策略（低相关因子）
+    print("\n3. 运行增强版策略（低相关性因子组合）...")
+    enhanced_analyzer = EnhancedFactorAnalyzer(data)
+    enhanced_results = enhanced_analyzer.run_backtest(initial_cash=10000.0)
+    
     # 对比结果
     print("\n=== 策略对比结果 ===")
-    print(f"{'指标':<15} {'传统策略':<15} {'自适应策略':<15} {'改进':<10}")
-    print("-" * 60)
+    print(f"{'指标':<15} {'传统策略':<15} {'自适应策略':<15} {'增强策略':<15} {'最佳':<10}")
+    print("-" * 75)
+    
+    strategies = {
+        '传统': traditional_results,
+        '自适应': adaptive_results,
+        '增强': enhanced_results
+    }
     
     metrics = [
         ('收益率 (%)', 'return_pct'),
@@ -184,17 +196,22 @@ def compare_strategies(data):
     for metric_name, metric_key in metrics:
         trad_val = traditional_results.get(metric_key, 0) or 0
         adapt_val = adaptive_results.get(metric_key, 0) or 0
+        enhanced_val = enhanced_results.get(metric_key, 0) or 0
+        
+        # 找出最佳表现
+        values = [trad_val, adapt_val, enhanced_val]
+        names = ['传统', '自适应', '增强']
         
         if metric_key == 'max_drawdown':
-            # 回撤越小越好
-            improvement = f"{((trad_val - adapt_val) / abs(trad_val) * 100):+.1f}%" if trad_val != 0 else "N/A"
+            best_idx = values.index(min(values))
         else:
-            # 其他指标越大越好
-            improvement = f"{((adapt_val - trad_val) / abs(trad_val) * 100):+.1f}%" if trad_val != 0 else "N/A"
+            best_idx = values.index(max(values))
         
-        print(f"{metric_name:<15} {trad_val:<15.3f} {adapt_val:<15.3f} {improvement:<10}")
+        best_strategy = names[best_idx]
+        
+        print(f"{metric_name:<15} {trad_val:<15.2f} {adapt_val:<15.2f} {enhanced_val:<15.2f} {best_strategy:<10}")
     
-    return traditional_results, adaptive_results, adaptive_analyzer
+    return traditional_results, adaptive_results, enhanced_results, enhanced_analyzer
 
 
 def plot_adaptive_analysis(analysis_data):
@@ -288,11 +305,11 @@ def main():
     print(f"✅ 成功获取 {len(data)} 条数据")
     
     # 2. 策略对比
-    traditional_results, adaptive_results, adaptive_analyzer = compare_strategies(data)
+    traditional_results, adaptive_results, enhanced_results, enhanced_analyzer = compare_strategies(data)
     
-    # 3. 详细分析自适应策略
-    print("\n3. 详细分析自适应策略...")
-    analysis_data = adaptive_analyzer.get_analysis_data()
+    # 3. 详细分析增强版策略
+    print("\n3. 详细分析增强版策略...")
+    analysis_data = enhanced_analyzer.get_analysis_data()
     
     if 'factors' in analysis_data and not analysis_data['factors'].empty:
         factor_data = analysis_data['factors']
@@ -323,7 +340,8 @@ def main():
         # 保存策略对比结果
         comparison_df = pd.DataFrame({
             '传统策略': traditional_results,
-            '自适应策略': adaptive_results
+            '自适应策略': adaptive_results,
+            '增强策略': enhanced_results
         }).T
         comparison_df.to_csv(OUTPUT_DIR / 'strategy_comparison.csv')
         print("✅ 策略对比结果已保存到 output/strategy_comparison.csv")
