@@ -136,8 +136,8 @@ def main():
     print("\n1. 正在获取 ETHUSDT 数据...")
     fetcher = BinanceDataFetcher()
     
-    # 获取最近30天的小时数据
-    data = fetcher.fetch_recent_data(symbol='ETH/USDT', timeframe='1h', days=30)
+    # 获取最近 180 天的小时数据
+    data = fetcher.fetch_recent_with_cache(symbol='ETH/USDT', timeframe='1h', days=180)
     
     if data.empty:
         print("❌ 数据获取失败，请检查网络连接或API配置")

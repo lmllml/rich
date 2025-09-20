@@ -7,7 +7,9 @@ from pathlib import Path
 SRC_DIR: Path = Path(__file__).resolve().parent
 PROJECT_ROOT: Path = SRC_DIR.parent
 OUTPUT_DIR: Path = PROJECT_ROOT / 'output'
+DB_DIR: Path = PROJECT_ROOT / 'cache'
+DB_PATH: Path = DB_DIR / 'market_cache.sqlite'
 
-__all__ = ['SRC_DIR', 'PROJECT_ROOT', 'OUTPUT_DIR']
+__all__ = ['SRC_DIR', 'PROJECT_ROOT', 'OUTPUT_DIR', 'DB_DIR', 'DB_PATH']
 
 
