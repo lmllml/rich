@@ -200,43 +200,122 @@ class BinanceDataFetcher:
         timeframe: str = '1h',
         days: int = 30
     ) -> pd.DataFrame:
-        """优先从本地 SQLite 读取，不足再请求补齐，并写回缓存。"""
+        """优先从本地 SQLite 读取，不足再循环请求补齐，并写回缓存。"""
         cache = MarketDataCache()
         since = datetime.now() - timedelta(days=days)
         since_ms = int(since.timestamp() * 1000)
-        # 根据时间框架计算数据点数量
+        
+        # 根据时间框架计算期望的数据点数量
         if timeframe == '1h':
-            limit = days * 24  # 每天24小时
+            expected_records = days * 24  # 每天24小时
         elif timeframe == '4h':
-            limit = days * 6   # 每天6个4小时K线
+            expected_records = days * 6   # 每天6个4小时K线
         elif timeframe == '12h':
-            limit = days * 2   # 每天2个12小时K线
+            expected_records = days * 2   # 每天2个12小时K线
         elif timeframe == '1d':
-            limit = days * 1   # 每天1个日K线
+            expected_records = days * 1   # 每天1个日K线
         elif timeframe == '15m':
-            limit = days * 24 * 4  # 每天96个15分钟K线
+            expected_records = days * 24 * 4  # 每天96个15分钟K线
         elif timeframe == '5m':
-            limit = days * 24 * 12  # 每天288个5分钟K线
+            expected_records = days * 24 * 12  # 每天288个5分钟K线
         elif timeframe == '1m':
-            limit = days * 24 * 60  # 每天1440个1分钟K线
+            expected_records = days * 24 * 60  # 每天1440个1分钟K线
         else:
-            limit = days * 500  # 其他时间框架的默认值
+            expected_records = days * 500  # 其他时间框架的默认值
+
+        print(f"期望获取 {expected_records} 条 {timeframe} 数据 (最近{days}天)")
 
         # 1) 先读缓存
-        cached = cache.load_range(symbol, timeframe, since_ms, limit)
+        cached = cache.load_range(symbol, timeframe, since_ms, expected_records * 2)  # 多读一些避免边界问题
+        cached_in_range = cached[cached.index >= since] if not cached.empty else cached
+        print(f"从缓存中读取到 {len(cached_in_range)} 条目标时间范围内的记录")
 
-        # 2) 如果缓存不足，向交易所请求，并与缓存合并
-        need_fetch = cached.empty or len(cached) < limit
-        if need_fetch:
-            fetched = self.fetch_ohlcv_data(symbol, timeframe, limit=limit, since=since)
-            if not fetched.empty:
-                # 合并并去重
-                combined = pd.concat([cached, fetched]).sort_index()
-                combined = combined[~combined.index.duplicated(keep='last')]
-                cache.upsert(symbol, timeframe, combined)
-                return combined
-            return cached
-        return cached
+        # 2) 如果缓存数据足够，直接返回
+        if len(cached_in_range) >= expected_records * 0.95:  # 允许5%的误差
+            print(f"缓存数据充足，返回 {len(cached_in_range)} 条记录")
+            return cached_in_range.head(expected_records)
+
+        # 3) 缓存不足，需要循环获取
+        print(f"缓存不足，需要循环获取更多数据...")
+        
+        all_data = []
+        if not cached_in_range.empty:
+            all_data.append(cached_in_range)
+        
+        # 从最早需要的时间开始，分批向前获取
+        current_end_time = datetime.now()
+        batch_size = 1000  # 每批最多1000条
+        total_collected = len(cached_in_range)
+        batch_count = 0
+        
+        import time
+        
+        while total_collected < expected_records and batch_count < 10:  # 最多10批，避免无限循环
+            batch_count += 1
+            
+            # 计算这批需要获取多少条
+            remaining = expected_records - total_collected
+            current_batch_size = min(batch_size, remaining + 200)  # 多获取一些避免边界问题
+            
+            print(f"第{batch_count}批：尝试获取 {current_batch_size} 条记录...")
+            
+            # 计算这批数据的开始时间
+            if timeframe == '4h':
+                batch_days = (current_batch_size // 6) + 10  # 4小时线，每天6条，多加10天缓冲
+            elif timeframe == '1h':
+                batch_days = (current_batch_size // 24) + 5   # 1小时线，每天24条
+            elif timeframe == '1d':
+                batch_days = current_batch_size + 10          # 日线
+            else:
+                batch_days = 100  # 其他时间框架的默认值
+                
+            batch_since = current_end_time - timedelta(days=batch_days)
+            
+            # 获取这批数据
+            batch_data = self.fetch_ohlcv_data(
+                symbol=symbol,
+                timeframe=timeframe,
+                limit=current_batch_size,
+                since=batch_since
+            )
+            
+            if batch_data.empty:
+                print(f"第{batch_count}批获取失败，停止获取")
+                break
+            
+            # 过滤到目标时间范围
+            batch_in_range = batch_data[batch_data.index >= since]
+            if not batch_in_range.empty:
+                all_data.append(batch_in_range)
+                total_collected += len(batch_in_range)
+                print(f"第{batch_count}批获取到 {len(batch_in_range)} 条有效记录，总计 {total_collected} 条")
+            
+            # 更新下次获取的结束时间
+            current_end_time = batch_data.index.min() - timedelta(hours=1)
+            
+            # 如果已经获取到足够早的数据，停止
+            if current_end_time <= since:
+                break
+                
+            # 避免请求过快
+            time.sleep(0.2)
+        
+        # 4) 合并所有数据
+        if all_data:
+            combined = pd.concat(all_data).sort_index()
+            # 去重，保留最新的数据
+            combined = combined[~combined.index.duplicated(keep='last')]
+            # 确保在目标时间范围内
+            combined = combined[combined.index >= since]
+            
+            print(f"最终获得 {len(combined)} 条记录，时间范围：{combined.index.min()} 到 {combined.index.max()}")
+            
+            # 保存到缓存
+            cache.upsert(symbol, timeframe, combined)
+            return combined
+        else:
+            print("未能获取到新数据，返回缓存数据")
+            return cached_in_range
 
 
 if __name__ == "__main__":
