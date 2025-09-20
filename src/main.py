@@ -10,6 +10,7 @@ warnings.filterwarnings('ignore')
 
 from data_fetcher import BinanceDataFetcher
 from factor_strategy import FactorAnalyzer
+from chart_utils import create_enhanced_factor_chart
 
 
 def analyze_factor_performance(factor_data: pd.DataFrame):
@@ -51,8 +52,17 @@ def analyze_factor_performance(factor_data: pd.DataFrame):
 
 def plot_factor_analysis(factor_data: pd.DataFrame):
     """绘制因子分析图表"""
+    # 配置中文字体
+    try:
+        # 尝试设置中文字体
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+    except:
+        # 如果字体设置失败，使用英文标题
+        print("警告：中文字体设置失败，将使用英文标题")
+    
     fig, axes = plt.subplots(3, 2, figsize=(15, 12))
-    fig.suptitle('ETHUSDT 因子分析', fontsize=16)
+    fig.suptitle('ETHUSDT Factor Analysis', fontsize=16)
     
     # 价格和综合信号
     ax1 = axes[0, 0]
@@ -60,18 +70,18 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
     ax1_twin = ax1.twinx()
     ax1_twin.plot(factor_data.index, factor_data['combined_signal'], 
                   label='Combined Signal', color='red', alpha=0.7)
-    ax1.set_title('价格 vs 综合信号')
-    ax1.set_ylabel('价格 (USDT)')
-    ax1_twin.set_ylabel('综合信号')
+    ax1.set_title('Price vs Combined Signal')
+    ax1.set_ylabel('Price (USDT)')
+    ax1_twin.set_ylabel('Combined Signal')
     ax1.legend(loc='upper left')
     ax1_twin.legend(loc='upper right')
     
     # RSI
     ax2 = axes[0, 1]
     ax2.plot(factor_data.index, factor_data['rsi'], label='RSI', color='blue')
-    ax2.axhline(y=70, color='r', linestyle='--', alpha=0.5, label='超买线')
-    ax2.axhline(y=30, color='g', linestyle='--', alpha=0.5, label='超卖线')
-    ax2.set_title('RSI 相对强弱指标')
+    ax2.axhline(y=70, color='r', linestyle='--', alpha=0.5, label='Overbought')
+    ax2.axhline(y=30, color='g', linestyle='--', alpha=0.5, label='Oversold')
+    ax2.set_title('RSI Indicator')
     ax2.set_ylabel('RSI')
     ax2.legend()
     
@@ -79,7 +89,7 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
     ax3 = axes[1, 0]
     ax3.plot(factor_data.index, factor_data['macd'], label='MACD', color='purple')
     ax3.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-    ax3.set_title('MACD 指标')
+    ax3.set_title('MACD Indicator')
     ax3.set_ylabel('MACD')
     ax3.legend()
     
@@ -90,29 +100,30 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
     ax4.plot(factor_data.index, factor_data['bb_lower'], label='BB Lower', color='green', alpha=0.7)
     ax4.fill_between(factor_data.index, factor_data['bb_lower'], factor_data['bb_upper'], 
                      alpha=0.1, color='gray')
-    ax4.set_title('布林带')
-    ax4.set_ylabel('价格 (USDT)')
+    ax4.set_title('Bollinger Bands')
+    ax4.set_ylabel('Price (USDT)')
     ax4.legend()
     
-    # 动量和波动率
+    # 动量指标
     ax5 = axes[2, 0]
     ax5.plot(factor_data.index, factor_data['momentum'], label='Momentum', color='orange')
     ax5.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-    ax5.set_title('动量指标')
-    ax5.set_ylabel('动量')
+    ax5.set_title('Momentum Indicator')
+    ax5.set_ylabel('Momentum')
     ax5.legend()
     
     # 仓位变化
     ax6 = axes[2, 1]
     ax6.plot(factor_data.index, factor_data['position'], label='Position', color='brown')
-    ax6.set_title('仓位变化')
-    ax6.set_ylabel('仓位大小')
+    ax6.set_title('Position Changes')
+    ax6.set_ylabel('Position Size')
     ax6.legend()
     
     plt.tight_layout()
     import os
     os.makedirs('../output', exist_ok=True)
-    plt.savefig('../output/factor_analysis_charts.png', dpi=300, bbox_inches='tight')
+    plt.savefig('../output/factor_analysis_charts.png', dpi=300, bbox_inches='tight', 
+                facecolor='white', edgecolor='none')
     print("图表已保存为 output/factor_analysis_charts.png")
 
 
@@ -164,15 +175,21 @@ def main():
         correlation_matrix = analyze_factor_performance(factor_data)
         
         # 5. 绘制分析图表
-        print("\n5. 正在生成分析图表...")
+        print("\n5. 正在生成增强版分析图表...")
         try:
             import matplotlib
             matplotlib.use('Agg')  # 使用非交互式后端
-            plot_factor_analysis(factor_data)
-            print("✅ 图表已保存（如果支持的话）")
+            create_enhanced_factor_chart(factor_data, '../output/factor_analysis_charts.png')
+            print("✅ 增强版图表已保存")
         except Exception as e:
             print(f"绘图时发生错误: {e}")
-            print("跳过绘图步骤，继续保存数据")
+            print("尝试使用基础版本图表...")
+            try:
+                plot_factor_analysis(factor_data)
+                print("✅ 基础版图表已保存")
+            except Exception as e2:
+                print(f"基础版图表也失败: {e2}")
+                print("跳过绘图步骤，继续保存数据")
         
         # 6. 保存结果
         print("\n6. 正在保存分析结果...")
