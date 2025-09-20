@@ -325,12 +325,12 @@ def main():
     output_manager = RunOutputManager()
     print(f"📁 本次运行输出目录: {output_manager.run_dir}")
     
-    # 1. 获取数据
+    # 1. 获取完整数据（包含完整性检查和缺失数据补充）
     print(f"\n1. 正在获取 {symbol} 数据...")
     fetcher = BinanceDataFetcher()
     
-    # 获取最近 730 天的4小时数据
-    data = fetcher.fetch_recent_with_cache(symbol=symbol, timeframe=timeframe, days=days)
+    # 获取最近 730 天的4小时数据，包含完整性检查
+    data = fetcher.fetch_complete_data(symbol=symbol, timeframe=timeframe, days=days)
     
     if data.empty:
         print("❌ 数据获取失败，请检查网络连接或API配置")

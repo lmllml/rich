@@ -4,7 +4,7 @@
 import ccxt
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 import sqlite3
 from pathlib import Path
 from paths import DB_DIR, DB_PATH
@@ -316,6 +316,237 @@ class BinanceDataFetcher:
         else:
             print("未能获取到新数据，返回缓存数据")
             return cached_in_range
+    
+    def check_data_integrity(self, data: pd.DataFrame, timeframe: str, expected_days: int) -> Tuple[bool, List[Tuple[datetime, datetime]]]:
+        """
+        检查K线数据的完整性，返回是否完整和缺失的时间段
+        
+        Args:
+            data: K线数据DataFrame，索引为时间
+            timeframe: 时间框架 ('1h', '4h', '1d' 等)
+            expected_days: 期望的天数
+            
+        Returns:
+            Tuple[bool, List[Tuple[datetime, datetime]]]: (是否完整, 缺失时间段列表)
+        """
+        if data.empty:
+            return False, []
+        
+        # 计算时间间隔（分钟）
+        timeframe_minutes = {
+            '1m': 1,
+            '5m': 5,
+            '15m': 15,
+            '30m': 30,
+            '1h': 60,
+            '4h': 240,
+            '12h': 720,
+            '1d': 1440,
+        }
+        
+        if timeframe not in timeframe_minutes:
+            print(f"⚠️ 不支持的时间框架: {timeframe}")
+            return True, []  # 对于不支持的时间框架，假设完整
+        
+        interval_minutes = timeframe_minutes[timeframe]
+        interval_delta = timedelta(minutes=interval_minutes)
+        
+        # 获取数据的时间范围
+        start_time = data.index.min()
+        end_time = data.index.max()
+        
+        print(f"📊 数据完整性检查:")
+        print(f"   时间框架: {timeframe}")
+        print(f"   数据范围: {start_time} 到 {end_time}")
+        print(f"   实际记录数: {len(data)}")
+        
+        # 生成期望的时间序列
+        expected_times = []
+        current_time = start_time
+        while current_time <= end_time:
+            expected_times.append(current_time)
+            current_time += interval_delta
+        
+        expected_count = len(expected_times)
+        print(f"   期望记录数: {expected_count}")
+        
+        # 找出缺失的时间点
+        data_times = set(data.index)
+        expected_times_set = set(expected_times)
+        missing_times = sorted(expected_times_set - data_times)
+        
+        if not missing_times:
+            print(f"✅ 数据完整，无缺失")
+            return True, []
+        
+        # 将连续的缺失时间合并为时间段
+        missing_ranges = []
+        if missing_times:
+            range_start = missing_times[0]
+            range_end = missing_times[0]
+            
+            for i in range(1, len(missing_times)):
+                current_time = missing_times[i]
+                expected_next = range_end + interval_delta
+                
+                if current_time == expected_next:
+                    # 连续缺失，扩展当前范围
+                    range_end = current_time
+                else:
+                    # 不连续，保存当前范围并开始新范围
+                    missing_ranges.append((range_start, range_end))
+                    range_start = current_time
+                    range_end = current_time
+            
+            # 添加最后一个范围
+            missing_ranges.append((range_start, range_end))
+        
+        missing_count = len(missing_times)
+        completeness = (expected_count - missing_count) / expected_count * 100
+        
+        print(f"⚠️ 数据不完整:")
+        print(f"   缺失记录数: {missing_count}")
+        print(f"   完整度: {completeness:.1f}%")
+        print(f"   缺失时间段数: {len(missing_ranges)}")
+        
+        for i, (start, end) in enumerate(missing_ranges[:5]):  # 只显示前5个缺失段
+            if start == end:
+                print(f"   缺失段 {i+1}: {start}")
+            else:
+                print(f"   缺失段 {i+1}: {start} 到 {end}")
+        
+        if len(missing_ranges) > 5:
+            print(f"   ... 还有 {len(missing_ranges) - 5} 个缺失段")
+        
+        return False, missing_ranges
+    
+    def fill_missing_data(self, data: pd.DataFrame, symbol: str, timeframe: str, 
+                         missing_ranges: List[Tuple[datetime, datetime]]) -> pd.DataFrame:
+        """
+        补充缺失的K线数据
+        
+        Args:
+            data: 现有的K线数据
+            symbol: 交易对符号
+            timeframe: 时间框架
+            missing_ranges: 缺失的时间段列表
+            
+        Returns:
+            补充后的完整数据
+        """
+        if not missing_ranges:
+            return data
+        
+        print(f"🔄 开始补充缺失数据...")
+        cache = MarketDataCache()
+        all_data = [data] if not data.empty else []
+        
+        for i, (start_time, end_time) in enumerate(missing_ranges):
+            print(f"   补充缺失段 {i+1}/{len(missing_ranges)}: {start_time} 到 {end_time}")
+            
+            # 计算需要获取的数据量
+            timeframe_minutes = {
+                '1m': 1, '5m': 5, '15m': 15, '30m': 30,
+                '1h': 60, '4h': 240, '12h': 720, '1d': 1440,
+            }
+            
+            if timeframe not in timeframe_minutes:
+                print(f"   ⚠️ 跳过不支持的时间框架: {timeframe}")
+                continue
+            
+            interval_minutes = timeframe_minutes[timeframe]
+            duration = end_time - start_time
+            expected_records = int(duration.total_seconds() / 60 / interval_minutes) + 1
+            
+            # 扩展时间范围以确保获取到边界数据
+            extended_start = start_time - timedelta(hours=24)  # 向前扩展24小时
+            extended_end = end_time + timedelta(hours=24)      # 向后扩展24小时
+            
+            try:
+                # 尝试从API获取数据
+                missing_data = self.fetch_ohlcv_data(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    limit=min(expected_records + 100, 1000),  # 限制单次请求量
+                    since=extended_start
+                )
+                
+                if not missing_data.empty:
+                    # 过滤到目标时间范围
+                    filtered_data = missing_data[
+                        (missing_data.index >= start_time) & 
+                        (missing_data.index <= end_time)
+                    ]
+                    
+                    if not filtered_data.empty:
+                        all_data.append(filtered_data)
+                        print(f"   ✅ 成功补充 {len(filtered_data)} 条记录")
+                        
+                        # 保存到缓存
+                        cache.upsert(symbol, timeframe, missing_data)
+                    else:
+                        print(f"   ⚠️ 获取的数据不在目标时间范围内")
+                else:
+                    print(f"   ❌ 未能获取到数据")
+                    
+            except Exception as e:
+                print(f"   ❌ 获取数据时出错: {e}")
+            
+            # 添加延迟避免API限制
+            import time
+            time.sleep(0.5)
+        
+        # 合并所有数据
+        if len(all_data) > 1:
+            combined_data = pd.concat(all_data, axis=0)
+            # 去重并排序
+            combined_data = combined_data[~combined_data.index.duplicated(keep='first')]
+            combined_data = combined_data.sort_index()
+            
+            print(f"✅ 数据补充完成，最终数据量: {len(combined_data)} 条")
+            return combined_data
+        else:
+            return data
+    
+    def fetch_complete_data(self, symbol: str = 'ETH/USDT', timeframe: str = '4h', 
+                           days: int = 730) -> pd.DataFrame:
+        """
+        获取完整的K线数据，包含完整性检查和缺失数据补充
+        
+        Args:
+            symbol: 交易对符号
+            timeframe: 时间框架
+            days: 天数
+            
+        Returns:
+            完整的K线数据
+        """
+        print(f"📈 获取完整的 {symbol} {timeframe} 数据 (最近{days}天)")
+        
+        # 1. 首先使用现有方法获取数据
+        data = self.fetch_recent_with_cache(symbol, timeframe, days)
+        
+        if data.empty:
+            print("❌ 无法获取基础数据")
+            return data
+        
+        # 2. 检查数据完整性
+        is_complete, missing_ranges = self.check_data_integrity(data, timeframe, days)
+        
+        # 3. 如果数据不完整，补充缺失数据
+        if not is_complete and missing_ranges:
+            data = self.fill_missing_data(data, symbol, timeframe, missing_ranges)
+            
+            # 4. 再次检查完整性
+            print(f"\n🔍 补充后再次检查数据完整性...")
+            final_is_complete, final_missing = self.check_data_integrity(data, timeframe, days)
+            
+            if final_is_complete:
+                print(f"✅ 数据补充成功，现在数据完整")
+            else:
+                print(f"⚠️ 仍有 {len(final_missing)} 个时间段缺失数据")
+        
+        return data
 
 
 if __name__ == "__main__":
