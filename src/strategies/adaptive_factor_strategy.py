@@ -404,10 +404,26 @@ class AdaptiveFactorAnalyzer:
         
         if results:
             strategy = results[0]
+            trade_analysis = strategy.analyzers.trades.get_analysis()
+            
+            # 计算胜率
+            total_closed_trades = trade_analysis.get('total', {}).get('closed', 0)
+            won_trades = trade_analysis.get('won', {}).get('total', 0)
+            win_rate = won_trades / total_closed_trades if total_closed_trades > 0 else 0
+            
             analysis_results.update({
                 'sharpe_ratio': strategy.analyzers.sharpe.get_analysis().get('sharperatio', 0),
                 'max_drawdown': strategy.analyzers.drawdown.get_analysis().get('max', {}).get('drawdown', 0),
-                'total_trades': strategy.analyzers.trades.get_analysis().get('total', {}).get('total', 0),
+                'total_trades': trade_analysis.get('total', {}).get('total', 0),
+                'win_rate': win_rate,
+            })
+        
+        else:
+            analysis_results.update({
+                'sharpe_ratio': 0,
+                'max_drawdown': 0,
+                'total_trades': 0,
+                'win_rate': 0,
             })
         
         return analysis_results
