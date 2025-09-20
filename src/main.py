@@ -18,35 +18,61 @@ def analyze_factor_performance(factor_data: pd.DataFrame):
     """分析因子表现"""
     print("\n=== 因子分析报告 ===")
     
-    # 计算各因子的信号统计
-    signal_cols = ['rsi_signal', 'macd_signal', 'bb_signal', 'momentum_signal', 'volatility_signal']
-    
-    print("\n各因子信号分布:")
-    for col in signal_cols:
-        signal_counts = factor_data[col].value_counts().sort_index()
-        print(f"{col}: {dict(signal_counts)}")
+    # 检查数据结构并适配不同的策略输出
+    if 'rsi_signal' in factor_data.columns:
+        # 传统策略的数据结构
+        signal_cols = ['rsi_signal', 'macd_signal', 'bb_signal', 'momentum_signal', 'volatility_signal']
+        
+        print("\n各因子信号分布:")
+        for col in signal_cols:
+            if col in factor_data.columns:
+                signal_counts = factor_data[col].value_counts().sort_index()
+                print(f"{col}: {dict(signal_counts)}")
+    else:
+        # 自适应策略的数据结构
+        print("\n自适应策略因子数据:")
+        if 'factors' in factor_data.columns and not factor_data.empty:
+            # 如果factors是嵌套结构，需要展开
+            first_factors = factor_data['factors'].iloc[0] if len(factor_data) > 0 else {}
+            if isinstance(first_factors, dict):
+                print(f"因子类型: {list(first_factors.keys())}")
     
     # 计算因子相关性
     factor_cols = ['rsi', 'macd', 'momentum', 'volatility']
-    correlation_matrix = factor_data[factor_cols].corr()
     
-    print("\n因子相关性矩阵:")
-    print(correlation_matrix.round(3))
+    # 检查是否有嵌套的factors列
+    if 'factors' in factor_data.columns and not factor_data.empty:
+        # 展开factors字典为独立列
+        factors_expanded = pd.json_normalize(factor_data['factors'])
+        factor_data = pd.concat([factor_data.drop('factors', axis=1), factors_expanded], axis=1)
+    
+    # 检查哪些因子列存在
+    available_factors = [col for col in factor_cols if col in factor_data.columns]
+    
+    if available_factors:
+        correlation_matrix = factor_data[available_factors].corr()
+        
+        print(f"\n因子相关性矩阵 (基于 {len(available_factors)} 个因子):")
+        print(correlation_matrix.round(3))
+    else:
+        print("\n未找到标准因子数据，跳过相关性分析")
+        correlation_matrix = pd.DataFrame()
     
     # 分析综合信号的分布
-    print(f"\n综合信号统计:")
-    print(f"平均值: {factor_data['combined_signal'].mean():.3f}")
-    print(f"标准差: {factor_data['combined_signal'].std():.3f}")
-    print(f"最大值: {factor_data['combined_signal'].max():.3f}")
-    print(f"最小值: {factor_data['combined_signal'].min():.3f}")
-    
-    # 分析交易信号
-    buy_signals = factor_data[factor_data['combined_signal'] > 0.3]
-    sell_signals = factor_data[factor_data['combined_signal'] < -0.3]
-    
-    print(f"\n交易信号统计:")
-    print(f"买入信号次数: {len(buy_signals)}")
-    print(f"卖出信号次数: {len(sell_signals)}")
+    if 'combined_signal' in factor_data.columns:
+        print(f"\n综合信号统计:")
+        print(f"平均值: {factor_data['combined_signal'].mean():.3f}")
+        print(f"标准差: {factor_data['combined_signal'].std():.3f}")
+        print(f"最大值: {factor_data['combined_signal'].max():.3f}")
+        print(f"最小值: {factor_data['combined_signal'].min():.3f}")
+        
+        # 分析交易信号
+        buy_signals = factor_data[factor_data['combined_signal'] > 0.3]
+        sell_signals = factor_data[factor_data['combined_signal'] < -0.3]
+        
+        print(f"\n交易信号统计:")
+        print(f"买入信号次数: {len(buy_signals)}")
+        print(f"卖出信号次数: {len(sell_signals)}")
     
     return correlation_matrix
 
