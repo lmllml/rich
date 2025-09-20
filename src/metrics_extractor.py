@@ -11,13 +11,15 @@ class PerformanceMetricsExtractor:
     
     @staticmethod
     def extract_strategy_metrics(results: Dict[str, Any], 
-                               factor_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+                               factor_data: Optional[pd.DataFrame] = None,
+                               strategy_instance=None) -> Dict[str, Any]:
         """
         从策略结果中提取关键指标
         
         Args:
             results: 策略运行结果
             factor_data: 因子数据DataFrame
+            strategy_instance: 策略实例，用于获取详细交易数据
             
         Returns:
             包含所有关键指标的字典
@@ -34,6 +36,12 @@ class PerformanceMetricsExtractor:
             if metric in results:
                 metrics[metric] = results[metric]
         
+        # 计算盈亏比相关指标
+        profit_loss_metrics = PerformanceMetricsExtractor._calculate_profit_loss_ratio(
+            results, strategy_instance
+        )
+        metrics.update(profit_loss_metrics)
+        
         # 计算额外指标
         if factor_data is not None and not factor_data.empty:
             additional_metrics = PerformanceMetricsExtractor._calculate_additional_metrics(
@@ -46,6 +54,93 @@ class PerformanceMetricsExtractor:
         metrics.update(risk_metrics)
         
         return metrics
+    
+    @staticmethod
+    def _calculate_profit_loss_ratio(results: Dict[str, Any], strategy_instance=None) -> Dict[str, Any]:
+        """
+        计算盈亏比相关指标
+        
+        Args:
+            results: 策略运行结果
+            strategy_instance: 策略实例，用于获取详细交易数据
+            
+        Returns:
+            包含盈亏比相关指标的字典
+        """
+        profit_loss_metrics = {}
+        
+        try:
+            # 尝试从策略实例获取详细交易分析
+            if strategy_instance is not None and hasattr(strategy_instance, 'analyzers'):
+                trade_analyzer = strategy_instance.analyzers.trades.get_analysis()
+                
+                # 获取盈利交易和亏损交易的详细信息
+                won_info = trade_analyzer.get('won', {})
+                lost_info = trade_analyzer.get('lost', {})
+                
+                # 平均盈利和平均亏损
+                avg_win = won_info.get('pnl', {}).get('average', 0)
+                avg_loss = abs(lost_info.get('pnl', {}).get('average', 0))  # 取绝对值
+                
+                # 计算盈亏比 (平均盈利 / 平均亏损)
+                profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0
+                
+                # 总盈利和总亏损
+                total_profit = won_info.get('pnl', {}).get('total', 0)
+                total_loss = abs(lost_info.get('pnl', {}).get('total', 0))
+                
+                # 盈利因子 (总盈利 / 总亏损)
+                profit_factor = total_profit / total_loss if total_loss > 0 else 0
+                
+                profit_loss_metrics.update({
+                    'avg_win': avg_win,
+                    'avg_loss': avg_loss,
+                    'profit_loss_ratio': profit_loss_ratio,
+                    'total_profit': total_profit,
+                    'total_loss': total_loss,
+                    'profit_factor': profit_factor,
+                    'won_trades': won_info.get('total', 0),
+                    'lost_trades': lost_info.get('total', 0),
+                })
+            else:
+                # 如果没有策略实例，尝试从results中获取基础信息
+                win_rate = results.get('win_rate', 0)
+                total_trades = results.get('total_trades', 0)
+                return_pct = results.get('return_pct', 0)
+                
+                if total_trades > 0 and win_rate > 0:
+                    # 估算平均盈利和亏损（基于总收益和胜率的简单估算）
+                    won_trades = int(total_trades * win_rate)
+                    lost_trades = total_trades - won_trades
+                    
+                    # 简单估算：假设平均盈利和亏损的比例
+                    if won_trades > 0 and lost_trades > 0:
+                        # 这是一个简化的估算，实际应该从详细交易记录计算
+                        estimated_avg_win = return_pct / won_trades if won_trades > 0 else 0
+                        estimated_avg_loss = abs(return_pct) / lost_trades if lost_trades > 0 else 0
+                        estimated_profit_loss_ratio = estimated_avg_win / estimated_avg_loss if estimated_avg_loss > 0 else 0
+                        
+                        profit_loss_metrics.update({
+                            'avg_win': estimated_avg_win,
+                            'avg_loss': estimated_avg_loss,
+                            'profit_loss_ratio': estimated_profit_loss_ratio,
+                            'won_trades': won_trades,
+                            'lost_trades': lost_trades,
+                        })
+                
+        except Exception as e:
+            print(f"⚠️ 计算盈亏比指标时出错: {e}")
+            # 设置默认值
+            profit_loss_metrics.update({
+                'avg_win': 0,
+                'avg_loss': 0,
+                'profit_loss_ratio': 0,
+                'profit_factor': 0,
+                'won_trades': 0,
+                'lost_trades': 0,
+            })
+        
+        return profit_loss_metrics
     
     @staticmethod
     def _calculate_additional_metrics(factor_data: pd.DataFrame, 

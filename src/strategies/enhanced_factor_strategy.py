@@ -466,6 +466,7 @@ class EnhancedFactorAnalyzer:
                 'max_drawdown': strategy.analyzers.drawdown.get_analysis().get('max', {}).get('drawdown', 0),
                 'total_trades': trade_analysis.get('total', {}).get('total', 0),
                 'win_rate': win_rate,
+                'strategy_instance': strategy,  # 保存策略实例以供后续分析使用
             })
         else:
             analysis_results.update({
@@ -473,6 +474,7 @@ class EnhancedFactorAnalyzer:
                 'max_drawdown': 0,
                 'total_trades': 0,
                 'win_rate': 0,
+                'strategy_instance': None,
             })
         
         return analysis_results

@@ -354,19 +354,19 @@ def main():
     if not factor_data.empty:
         # 传统策略指标
         traditional_metrics = PerformanceMetricsExtractor.extract_strategy_metrics(
-            traditional_results, factor_data
+            traditional_results, factor_data, traditional_results.get('strategy_instance')
         )
         all_strategy_metrics['传统策略'] = traditional_metrics
         
         # 自适应策略指标
         adaptive_metrics = PerformanceMetricsExtractor.extract_strategy_metrics(
-            adaptive_results, factor_data
+            adaptive_results, factor_data, adaptive_results.get('strategy_instance')
         )
         all_strategy_metrics['自适应策略'] = adaptive_metrics
         
         # 增强策略指标
         enhanced_metrics = PerformanceMetricsExtractor.extract_strategy_metrics(
-            enhanced_results, factor_data
+            enhanced_results, factor_data, enhanced_results.get('strategy_instance')
         )
         all_strategy_metrics['增强策略'] = enhanced_metrics
         

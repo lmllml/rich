@@ -103,7 +103,7 @@ class RunOutputManager:
         }
         
         # 提取关键指标
-        key_metrics = ['return_pct', 'sharpe_ratio', 'max_drawdown', 'total_trades', 'win_rate']
+        key_metrics = ['return_pct', 'sharpe_ratio', 'max_drawdown', 'total_trades', 'win_rate', 'profit_loss_ratio', 'avg_win', 'avg_loss']
         
         for strategy_name, results in strategy_results.items():
             strategy_metrics = {}
@@ -153,8 +153,8 @@ class RunOutputManager:
             f.write("-" * 30 + "\n")
             if summary['strategy_comparison']:
                 # 表头
-                f.write(f"{'策略':<12} {'收益率(%)':<12} {'夏普比率':<12} {'最大回撤(%)':<12} {'交易次数':<12} {'胜率(%)':<12}\n")
-                f.write("-" * 75 + "\n")
+                f.write(f"{'策略':<12} {'收益率(%)':<12} {'夏普比率':<12} {'最大回撤(%)':<12} {'交易次数':<12} {'胜率(%)':<12} {'盈亏比':<12}\n")
+                f.write("-" * 87 + "\n")
                 
                 for strategy_name, metrics in summary['strategy_comparison'].items():
                     return_pct = metrics.get('return_pct', 0)
@@ -162,8 +162,9 @@ class RunOutputManager:
                     drawdown = metrics.get('max_drawdown', 0)
                     trades = metrics.get('total_trades', 0)
                     win_rate = metrics.get('win_rate', 0) * 100 if metrics.get('win_rate') else 0
+                    profit_loss_ratio = metrics.get('profit_loss_ratio', 0)
                     
-                    f.write(f"{strategy_name:<12} {return_pct:<12.2f} {sharpe:<12.3f} {drawdown:<12.2f} {trades:<12} {win_rate:<12.1f}\n")
+                    f.write(f"{strategy_name:<12} {return_pct:<12.2f} {sharpe:<12.3f} {drawdown:<12.2f} {trades:<12} {win_rate:<12.1f} {profit_loss_ratio:<12.3f}\n")
                 f.write("\n")
             
             # 最佳策略
@@ -213,7 +214,8 @@ class RunOutputManager:
             '最高夏普比率': ('sharpe_ratio', 'max'),
             '最小回撤': ('max_drawdown', 'min'),
             '最多交易次数': ('total_trades', 'max'),
-            '最高胜率': ('win_rate', 'max')
+            '最高胜率': ('win_rate', 'max'),
+            '最高盈亏比': ('profit_loss_ratio', 'max')
         }
         
         for metric_name, (metric_key, direction) in metrics.items():
