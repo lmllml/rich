@@ -92,11 +92,32 @@ def plot_factor_analysis(factor_data: pd.DataFrame, output_manager: RunOutputMan
     if 'factors' in factor_data.columns and not factor_data.empty:
         # 展开factors字典为独立列
         try:
-            factors_expanded = pd.json_normalize(factor_data['factors'])
-            factor_data = pd.concat([factor_data.drop('factors', axis=1), factors_expanded], axis=1)
+            # 重置索引以避免重复索引问题
+            factor_data_reset = factor_data.reset_index(drop=True)
+            factors_expanded = pd.json_normalize(factor_data_reset['factors'])
+            factor_data = pd.concat([factor_data_reset.drop('factors', axis=1), factors_expanded], axis=1)
+            # 恢复原来的索引
+            factor_data.index = factor_data_reset.index
             print(f"展开factors后的列: {factor_data.columns.tolist()}")
         except Exception as e:
             print(f"展开factors时出错: {e}")
+            # 如果展开失败，尝试手动解析
+            try:
+                import ast
+                factor_rows = []
+                for idx, row in factor_data.iterrows():
+                    row_dict = dict(row)
+                    if isinstance(row['factors'], str):
+                        factors_dict = ast.literal_eval(row['factors'])
+                    else:
+                        factors_dict = row['factors']
+                    row_dict.update(factors_dict)
+                    del row_dict['factors']
+                    factor_rows.append(row_dict)
+                factor_data = pd.DataFrame(factor_rows)
+                print(f"手动展开factors后的列: {factor_data.columns.tolist()}")
+            except Exception as e2:
+                print(f"手动展开factors也失败: {e2}")
     
     fig, axes = plt.subplots(3, 2, figsize=(15, 12))
     fig.suptitle('ETHUSDT 因子分析报告', fontsize=16,
@@ -117,46 +138,45 @@ def plot_factor_analysis(factor_data: pd.DataFrame, output_manager: RunOutputMan
     ax1.set_ylabel('价格 (USDT)')
     ax1.legend(loc='upper left')
     
-    # RSI
+    # 波动率因子
     ax2 = axes[0, 1]
-    if 'rsi' in factor_data.columns:
-        ax2.plot(factor_data.index, factor_data['rsi'], label='RSI', color='blue')
-        ax2.axhline(y=70, color='r', linestyle='--', alpha=0.5, label='Overbought')
-        ax2.axhline(y=30, color='g', linestyle='--', alpha=0.5, label='Oversold')
-        ax2.set_title('RSI 相对强弱指标',
+    if 'volatility' in factor_data.columns:
+        ax2.plot(factor_data.index, factor_data['volatility'], label='Volatility', color='blue')
+        ax2.set_title('波动率因子',
                       bbox=dict(facecolor='none', edgecolor='none', pad=0))
-        ax2.set_ylabel('RSI')
+        ax2.set_ylabel('波动率')
         ax2.legend()
     else:
-        ax2.text(0.5, 0.5, 'RSI 数据不可用', ha='center', va='center', transform=ax2.transAxes)
-        ax2.set_title('RSI 相对强弱指标')
+        ax2.text(0.5, 0.5, 'Volatility 数据不可用', ha='center', va='center', transform=ax2.transAxes)
+        ax2.set_title('波动率因子')
     
-    # MACD
+    # 成交量趋势因子
     ax3 = axes[1, 0]
-    if 'macd' in factor_data.columns:
-        ax3.plot(factor_data.index, factor_data['macd'], label='MACD', color='purple')
+    if 'volume_trend' in factor_data.columns:
+        ax3.plot(factor_data.index, factor_data['volume_trend'], label='Volume Trend', color='purple')
         ax3.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        ax3.set_title('MACD 指标',
+        ax3.set_title('成交量趋势因子',
                       bbox=dict(facecolor='none', edgecolor='none', pad=0))
-        ax3.set_ylabel('MACD 值')
+        ax3.set_ylabel('成交量趋势')
         ax3.legend()
     else:
-        ax3.text(0.5, 0.5, 'MACD 数据不可用', ha='center', va='center', transform=ax3.transAxes)
-        ax3.set_title('MACD 指标')
+        ax3.text(0.5, 0.5, 'Volume Trend 数据不可用', ha='center', va='center', transform=ax3.transAxes)
+        ax3.set_title('成交量趋势因子')
     
-    # 布林带
+    # 价格位置因子
     ax4 = axes[1, 1]
-    if 'price' in factor_data.columns:
-        ax4.plot(factor_data.index, factor_data['price'], label='Price', color='black')
-    if 'bb_upper' in factor_data.columns and 'bb_lower' in factor_data.columns:
-        ax4.plot(factor_data.index, factor_data['bb_upper'], label='BB Upper', color='red', alpha=0.7)
-        ax4.plot(factor_data.index, factor_data['bb_lower'], label='BB Lower', color='green', alpha=0.7)
-        ax4.fill_between(factor_data.index, factor_data['bb_lower'], factor_data['bb_upper'], 
-                         alpha=0.1, color='gray')
-    ax4.set_title('布林带',
-                  bbox=dict(facecolor='none', edgecolor='none', pad=0))
-    ax4.set_ylabel('价格 (USDT)')
-    ax4.legend()
+    if 'price_position' in factor_data.columns:
+        ax4.plot(factor_data.index, factor_data['price_position'], label='Price Position', color='green')
+        ax4.axhline(y=0.5, color='black', linestyle='-', alpha=0.3, label='中性位置')
+        ax4.axhline(y=0.8, color='red', linestyle='--', alpha=0.5, label='超买区域')
+        ax4.axhline(y=0.2, color='blue', linestyle='--', alpha=0.5, label='超卖区域')
+        ax4.set_title('价格位置因子',
+                      bbox=dict(facecolor='none', edgecolor='none', pad=0))
+        ax4.set_ylabel('价格位置 (0-1)')
+        ax4.legend()
+    else:
+        ax4.text(0.5, 0.5, 'Price Position 数据不可用', ha='center', va='center', transform=ax4.transAxes)
+        ax4.set_title('价格位置因子')
     
     # 动量指标
     ax5 = axes[2, 0]
@@ -171,17 +191,18 @@ def plot_factor_analysis(factor_data: pd.DataFrame, output_manager: RunOutputMan
         ax5.text(0.5, 0.5, 'Momentum 数据不可用', ha='center', va='center', transform=ax5.transAxes)
         ax5.set_title('动量指标')
     
-    # 仓位变化
+    # 趋势强度因子
     ax6 = axes[2, 1]
-    if 'position' in factor_data.columns:
-        ax6.plot(factor_data.index, factor_data['position'], label='Position', color='brown')
-        ax6.set_title('持仓变化',
+    if 'trend_strength' in factor_data.columns:
+        ax6.plot(factor_data.index, factor_data['trend_strength'], label='Trend Strength', color='brown')
+        ax6.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        ax6.set_title('趋势强度因子',
                       bbox=dict(facecolor='none', edgecolor='none', pad=0))
-        ax6.set_ylabel('持仓数量')
+        ax6.set_ylabel('趋势强度')
         ax6.legend()
     else:
-        ax6.text(0.5, 0.5, 'Position 数据不可用', ha='center', va='center', transform=ax6.transAxes)
-        ax6.set_title('持仓变化')
+        ax6.text(0.5, 0.5, 'Trend Strength 数据不可用', ha='center', va='center', transform=ax6.transAxes)
+        ax6.set_title('趋势强度因子')
     
     plt.tight_layout()
     output_manager.save_chart('factor_analysis_charts.png')
