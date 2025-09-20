@@ -10,6 +10,7 @@ warnings.filterwarnings('ignore')
 
 from data_fetcher import BinanceDataFetcher
 from factor_strategy import FactorAnalyzer
+from adaptive_factor_strategy import AdaptiveFactorAnalyzer
 from paths import OUTPUT_DIR
 
 
@@ -128,9 +129,124 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
     print("图表已保存为 output/factor_analysis_charts.png")
 
 
+def compare_strategies(data):
+    """对比传统策略和自适应策略"""
+    print("\n=== 策略对比测试 ===")
+    
+    # 运行传统策略
+    print("\n1. 运行传统固定权重策略...")
+    traditional_analyzer = FactorAnalyzer(data)
+    traditional_results = traditional_analyzer.run_backtest(initial_cash=10000.0)
+    
+    # 运行自适应策略
+    print("\n2. 运行自适应因子策略...")
+    adaptive_analyzer = AdaptiveFactorAnalyzer(data)
+    adaptive_results = adaptive_analyzer.run_backtest(initial_cash=10000.0)
+    
+    # 对比结果
+    print("\n=== 策略对比结果 ===")
+    print(f"{'指标':<15} {'传统策略':<15} {'自适应策略':<15} {'改进':<10}")
+    print("-" * 60)
+    
+    metrics = [
+        ('收益率 (%)', 'return_pct'),
+        ('夏普比率', 'sharpe_ratio'),
+        ('最大回撤 (%)', 'max_drawdown'),
+        ('总交易次数', 'total_trades')
+    ]
+    
+    for metric_name, metric_key in metrics:
+        trad_val = traditional_results.get(metric_key, 0) or 0
+        adapt_val = adaptive_results.get(metric_key, 0) or 0
+        
+        if metric_key == 'max_drawdown':
+            # 回撤越小越好
+            improvement = f"{((trad_val - adapt_val) / abs(trad_val) * 100):+.1f}%" if trad_val != 0 else "N/A"
+        else:
+            # 其他指标越大越好
+            improvement = f"{((adapt_val - trad_val) / abs(trad_val) * 100):+.1f}%" if trad_val != 0 else "N/A"
+        
+        print(f"{metric_name:<15} {trad_val:<15.3f} {adapt_val:<15.3f} {improvement:<10}")
+    
+    return traditional_results, adaptive_results, adaptive_analyzer
+
+
+def plot_adaptive_analysis(analysis_data):
+    """绘制自适应策略分析图表"""
+    plt.rcParams['font.sans-serif'] = ['SimHei']
+    plt.rcParams['axes.unicode_minus'] = False 
+    
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    fig.suptitle('自适应因子策略分析报告', fontsize=16)
+    
+    factor_data = analysis_data['factors']
+    weights_data = analysis_data.get('weights', pd.DataFrame())
+    
+    # 设置日期索引
+    if 'date' in factor_data.columns:
+        factor_data['date'] = pd.to_datetime(factor_data['date'])
+        factor_data.set_index('date', inplace=True)
+    
+    if not weights_data.empty and 'date' in weights_data.columns:
+        weights_data['date'] = pd.to_datetime(weights_data['date'])
+        weights_data.set_index('date', inplace=True)
+    
+    # 价格和综合信号
+    ax1 = axes[0, 0]
+    ax1.plot(factor_data.index, factor_data['price'], label='ETH Price', color='black')
+    ax1_twin = ax1.twinx()
+    ax1_twin.plot(factor_data.index, factor_data['combined_signal'], 
+                  label='Combined Signal', color='red', alpha=0.7)
+    ax1.set_title('价格 vs 自适应信号')
+    ax1.set_ylabel('价格 (USDT)')
+    ax1_twin.set_ylabel('综合信号')
+    ax1.legend(loc='upper left')
+    ax1_twin.legend(loc='upper right')
+    
+    # 权重变化
+    ax2 = axes[0, 1]
+    if not weights_data.empty:
+        factor_names = ['rsi', 'macd', 'momentum', 'volatility']
+        colors = ['blue', 'red', 'green', 'orange']
+        for factor, color in zip(factor_names, colors):
+            if factor in weights_data.columns:
+                ax2.plot(weights_data.index, weights_data[factor], 
+                        label=factor.upper(), color=color)
+        ax2.set_title('因子权重动态变化')
+        ax2.set_ylabel('权重')
+        ax2.legend()
+    else:
+        ax2.text(0.5, 0.5, '权重数据不可用', ha='center', va='center', transform=ax2.transAxes)
+        ax2.set_title('因子权重动态变化')
+    
+    # 持仓变化
+    ax3 = axes[1, 0]
+    ax3.plot(factor_data.index, factor_data['position'], label='Position', color='brown')
+    ax3.set_title('持仓变化')
+    ax3.set_ylabel('持仓数量')
+    ax3.legend()
+    
+    # 信号分布
+    ax4 = axes[1, 1]
+    ax4.hist(factor_data['combined_signal'], bins=50, alpha=0.7, color='purple')
+    ax4.axvline(x=0.3, color='red', linestyle='--', label='买入阈值')
+    ax4.axvline(x=-0.3, color='green', linestyle='--', label='卖出阈值')
+    ax4.set_title('综合信号分布')
+    ax4.set_xlabel('信号值')
+    ax4.set_ylabel('频次')
+    ax4.legend()
+    
+    plt.tight_layout()
+    import os
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    plt.savefig(str(OUTPUT_DIR / 'adaptive_strategy_analysis.png'), dpi=300, bbox_inches='tight', 
+                facecolor='white', edgecolor='none')
+    print("✅ 自适应策略分析图表已保存为 output/adaptive_strategy_analysis.png")
+
+
 def main():
     """主函数"""
-    print("=== 币安 ETHUSDT 因子分析系统 ===")
+    print("=== 币安 ETHUSDT 自适应因子分析系统 ===")
     
     # 1. 获取数据
     print("\n1. 正在获取 ETHUSDT 数据...")
@@ -145,70 +261,60 @@ def main():
     
     print(f"✅ 成功获取 {len(data)} 条数据")
     
-    # 2. 运行因子分析
-    print("\n2. 正在运行因子分析...")
-    analyzer = FactorAnalyzer(data)
+    # 2. 策略对比
+    traditional_results, adaptive_results, adaptive_analyzer = compare_strategies(data)
     
-    # 运行回测
-    results = analyzer.run_backtest(initial_cash=10000.0)
+    # 3. 详细分析自适应策略
+    print("\n3. 详细分析自适应策略...")
+    analysis_data = adaptive_analyzer.get_analysis_data()
     
-    # 3. 输出回测结果
-    print("\n=== 回测结果 ===")
-    print(f"初始资金: ${results['initial_cash']:,.2f}")
-    print(f"最终资金: ${results['final_value']:,.2f}")
-    print(f"总收益: ${results['total_return']:,.2f}")
-    print(f"收益率: {results['return_pct']:.2f}%")
-    sharpe_ratio = results['sharpe_ratio'] if results['sharpe_ratio'] is not None else 0.0
-    max_drawdown = results['max_drawdown'] if results['max_drawdown'] is not None else 0.0
-    print(f"夏普比率: {sharpe_ratio:.3f}")
-    print(f"最大回撤: {max_drawdown:.2f}%")
-    print(f"总交易次数: {results['total_trades']}")
-    
-    # 4. 获取因子数据并分析
-    factor_data = analyzer.get_factor_data()
-    
-    if not factor_data.empty:
-        # 设置日期索引
-        factor_data['date'] = pd.to_datetime(factor_data['date'])
-        factor_data.set_index('date', inplace=True)
+    if 'factors' in analysis_data and not analysis_data['factors'].empty:
+        factor_data = analysis_data['factors']
         
         # 分析因子表现
         correlation_matrix = analyze_factor_performance(factor_data)
         
-        # 5. 绘制分析图表
-        print("\n5. 正在生成分析图表...")
-
-        plot_factor_analysis(factor_data)
-        print("✅ 分析图表已保存")
-
-        # 6. 保存结果
-        print("\n6. 正在保存分析结果...")
+        # 4. 绘制分析图表
+        print("\n4. 正在生成分析图表...")
+        plot_adaptive_analysis(analysis_data)
+        
+        # 5. 保存结果
+        print("\n5. 正在保存分析结果...")
         
         # 确保输出目录存在
         import os
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         
-        # 保存因子数据
-        factor_data.to_csv(OUTPUT_DIR / 'factor_analysis_results.csv')
-        print("✅ 因子分析结果已保存到 output/factor_analysis_results.csv")
+        # 保存自适应策略结果
+        factor_data.to_csv(OUTPUT_DIR / 'adaptive_factor_results.csv')
+        print("✅ 自适应因子结果已保存到 output/adaptive_factor_results.csv")
+        
+        # 保存权重变化
+        if 'weights' in analysis_data and not analysis_data['weights'].empty:
+            analysis_data['weights'].to_csv(OUTPUT_DIR / 'factor_weights_history.csv')
+            print("✅ 因子权重历史已保存到 output/factor_weights_history.csv")
+        
+        # 保存策略对比结果
+        comparison_df = pd.DataFrame({
+            '传统策略': traditional_results,
+            '自适应策略': adaptive_results
+        }).T
+        comparison_df.to_csv(OUTPUT_DIR / 'strategy_comparison.csv')
+        print("✅ 策略对比结果已保存到 output/strategy_comparison.csv")
         
         # 保存相关性矩阵
         correlation_matrix.to_csv(OUTPUT_DIR / 'factor_correlation_matrix.csv')
         print("✅ 因子相关性矩阵已保存到 output/factor_correlation_matrix.csv")
-        
-        # 保存回测结果
-        results_df = pd.DataFrame([results])
-        results_df.to_csv(OUTPUT_DIR / 'backtest_results.csv', index=False)
-        print("✅ 回测结果已保存到 output/backtest_results.csv")
     
     print("\n=== 分析完成 ===")
     print("📊 查看 output/ 目录中的CSV文件获取详细数据")
-    print("📈 如果支持图形界面，应该已显示分析图表")
+    print("📈 查看生成的图表文件")
     print("\n输出文件位置:")
-    print("  - output/factor_analysis_results.csv")
+    print("  - output/adaptive_factor_results.csv")
+    print("  - output/factor_weights_history.csv")
+    print("  - output/strategy_comparison.csv")
     print("  - output/factor_correlation_matrix.csv")
-    print("  - output/backtest_results.csv")
-    print("  - output/factor_analysis_charts.png")
+    print("  - output/adaptive_strategy_analysis.png")
 
 
 if __name__ == "__main__":
