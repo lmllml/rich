@@ -110,8 +110,10 @@ def plot_factor_analysis(factor_data: pd.DataFrame):
     ax6.legend()
     
     plt.tight_layout()
-    plt.savefig('factor_analysis_charts.png', dpi=300, bbox_inches='tight')
-    print("图表已保存为 factor_analysis_charts.png")
+    import os
+    os.makedirs('../output', exist_ok=True)
+    plt.savefig('../output/factor_analysis_charts.png', dpi=300, bbox_inches='tight')
+    print("图表已保存为 output/factor_analysis_charts.png")
 
 
 def main():
@@ -175,22 +177,31 @@ def main():
         # 6. 保存结果
         print("\n6. 正在保存分析结果...")
         
+        # 确保输出目录存在
+        import os
+        os.makedirs('../output', exist_ok=True)
+        
         # 保存因子数据
-        factor_data.to_csv('factor_analysis_results.csv')
-        print("✅ 因子分析结果已保存到 factor_analysis_results.csv")
+        factor_data.to_csv('../output/factor_analysis_results.csv')
+        print("✅ 因子分析结果已保存到 output/factor_analysis_results.csv")
         
         # 保存相关性矩阵
-        correlation_matrix.to_csv('factor_correlation_matrix.csv')
-        print("✅ 因子相关性矩阵已保存到 factor_correlation_matrix.csv")
+        correlation_matrix.to_csv('../output/factor_correlation_matrix.csv')
+        print("✅ 因子相关性矩阵已保存到 output/factor_correlation_matrix.csv")
         
         # 保存回测结果
         results_df = pd.DataFrame([results])
-        results_df.to_csv('backtest_results.csv', index=False)
-        print("✅ 回测结果已保存到 backtest_results.csv")
+        results_df.to_csv('../output/backtest_results.csv', index=False)
+        print("✅ 回测结果已保存到 output/backtest_results.csv")
     
     print("\n=== 分析完成 ===")
-    print("📊 查看生成的CSV文件获取详细数据")
+    print("📊 查看 output/ 目录中的CSV文件获取详细数据")
     print("📈 如果支持图形界面，应该已显示分析图表")
+    print("\n输出文件位置:")
+    print("  - output/factor_analysis_results.csv")
+    print("  - output/factor_correlation_matrix.csv")
+    print("  - output/backtest_results.csv")
+    print("  - output/factor_analysis_charts.png")
 
 
 if __name__ == "__main__":
