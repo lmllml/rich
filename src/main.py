@@ -3,9 +3,12 @@
 """
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # 设置非交互式后端
 import matplotlib.pyplot as plt
 from datetime import datetime
 import warnings
+from typing import Dict, Any
 warnings.filterwarnings('ignore')
 
 from data_fetcher import BinanceDataFetcher
@@ -263,7 +266,217 @@ def compare_strategies(data):
         
         print(f"{metric_name:<15} {trad_val:<15.2f} {adapt_val:<15.2f} {enhanced_val:<15.2f} {best_strategy:<10}")
     
-    return traditional_results, adaptive_results, enhanced_results, enhanced_analyzer
+    return traditional_results, adaptive_results, enhanced_results, traditional_analyzer, adaptive_analyzer, enhanced_analyzer
+
+
+def plot_individual_strategy_portfolios(analyzers: Dict[str, Any], output_manager: RunOutputManager):
+    """绘制每个策略的单独资产变化图表"""
+    plt.rcParams['font.sans-serif'] = ['SimHei']
+    plt.rcParams['axes.unicode_minus'] = False 
+    
+    # 颜色方案
+    colors = {'传统策略': '#1f77b4', '自适应策略': '#ff7f0e', '增强策略': '#2ca02c'}
+    
+    for strategy_name, analyzer in analyzers.items():
+        try:
+            # 获取资产变化历史
+            portfolio_history = analyzer.get_portfolio_history()
+            
+            if not portfolio_history or not portfolio_history.get('dates') or not portfolio_history.get('portfolio_values'):
+                print(f"⚠️ {strategy_name}没有资产变化数据，跳过图表生成")
+                continue
+            
+            dates = portfolio_history['dates']
+            values = portfolio_history['portfolio_values']
+            
+            if not dates or not values or len(dates) != len(values):
+                print(f"⚠️ {strategy_name}资产变化数据不完整，跳过图表生成")
+                continue
+            
+            # 创建图表
+            fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+            fig.suptitle(f'{strategy_name} - 详细分析报告', fontsize=16, fontweight='bold')
+            
+            # 1. 资产变化曲线
+            ax1 = axes[0, 0]
+            ax1.plot(dates, values, color=colors.get(strategy_name, 'blue'), linewidth=2)
+            ax1.set_title('资产价值变化', fontweight='bold')
+            ax1.set_xlabel('日期')
+            ax1.set_ylabel('资产价值 (USDT)')
+            ax1.grid(True, alpha=0.3)
+            
+            # 添加起始和结束值标注
+            if len(values) > 0:
+                start_value = values[0]
+                end_value = values[-1]
+                ax1.axhline(y=start_value, color='gray', linestyle='--', alpha=0.5, label=f'起始: {start_value:.0f}')
+                ax1.axhline(y=end_value, color='red', linestyle='--', alpha=0.7, label=f'结束: {end_value:.0f}')
+                ax1.legend()
+            
+            # 2. 收益率曲线
+            ax2 = axes[0, 1]
+            if len(values) > 1:
+                returns = [(values[i] / values[0] - 1) * 100 for i in range(len(values))]
+                ax2.plot(dates, returns, color=colors.get(strategy_name, 'blue'), linewidth=2)
+                ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+                ax2.set_title('累计收益率变化', fontweight='bold')
+                ax2.set_xlabel('日期')
+                ax2.set_ylabel('收益率 (%)')
+                ax2.grid(True, alpha=0.3)
+                
+                # 标注最终收益率
+                final_return = returns[-1]
+                ax2.text(0.02, 0.98, f'最终收益率: {final_return:.1f}%', 
+                        transform=ax2.transAxes, verticalalignment='top',
+                        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+            
+            # 3. 回撤分析
+            ax3 = axes[1, 0]
+            if len(values) > 1:
+                # 计算回撤
+                peak = values[0]
+                drawdowns = []
+                for value in values:
+                    if value > peak:
+                        peak = value
+                    drawdown = (value - peak) / peak * 100
+                    drawdowns.append(drawdown)
+                
+                ax3.fill_between(dates, drawdowns, 0, color='red', alpha=0.3)
+                ax3.plot(dates, drawdowns, color='red', linewidth=1)
+                ax3.set_title('回撤分析', fontweight='bold')
+                ax3.set_xlabel('日期')
+                ax3.set_ylabel('回撤 (%)')
+                ax3.grid(True, alpha=0.3)
+                
+                # 标注最大回撤
+                max_drawdown = min(drawdowns)
+                ax3.text(0.02, 0.02, f'最大回撤: {max_drawdown:.1f}%', 
+                        transform=ax3.transAxes, verticalalignment='bottom',
+                        bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
+            
+            # 4. 资产增长分布
+            ax4 = axes[1, 1]
+            if len(values) > 10:
+                # 计算日收益率
+                daily_returns = []
+                for i in range(1, len(values)):
+                    daily_return = (values[i] / values[i-1] - 1) * 100
+                    daily_returns.append(daily_return)
+                
+                ax4.hist(daily_returns, bins=30, alpha=0.7, color=colors.get(strategy_name, 'blue'))
+                ax4.axvline(x=0, color='black', linestyle='-', alpha=0.3)
+                ax4.set_title('日收益率分布', fontweight='bold')
+                ax4.set_xlabel('日收益率 (%)')
+                ax4.set_ylabel('频次')
+                ax4.grid(True, alpha=0.3)
+                
+                # 添加统计信息
+                mean_return = np.mean(daily_returns)
+                std_return = np.std(daily_returns)
+                ax4.text(0.02, 0.98, f'均值: {mean_return:.3f}%\n标准差: {std_return:.3f}%', 
+                        transform=ax4.transAxes, verticalalignment='top',
+                        bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+            
+            plt.tight_layout()
+            
+            # 保存图表
+            filename = f'{strategy_name}_portfolio_analysis.png'
+            output_manager.save_chart(filename)
+            
+        except Exception as e:
+            print(f"❌ 生成{strategy_name}资产变化图表时出错: {e}")
+
+
+def plot_portfolio_comparison(strategy_results: Dict[str, Dict[str, Any]], output_manager: RunOutputManager):
+    """绘制各策略资产变化对比图表"""
+    plt.rcParams['font.sans-serif'] = ['SimHei']
+    plt.rcParams['axes.unicode_minus'] = False 
+    
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle('策略资产变化对比分析', fontsize=16, fontweight='bold')
+    
+    # 颜色方案
+    colors = {'传统策略': '#1f77b4', '自适应策略': '#ff7f0e', '增强策略': '#2ca02c'}
+    
+    # 1. 资产变化对比
+    ax1 = axes[0, 0]
+    for strategy_name, results in strategy_results.items():
+        portfolio_history = results.get('portfolio_history', {})
+        if portfolio_history and 'dates' in portfolio_history and 'portfolio_values' in portfolio_history:
+            dates = portfolio_history['dates']
+            values = portfolio_history['portfolio_values']
+            if dates and values:
+                ax1.plot(dates, values, label=strategy_name, color=colors.get(strategy_name, 'gray'), linewidth=2)
+    
+    ax1.set_title('资产变化对比', fontweight='bold')
+    ax1.set_xlabel('日期')
+    ax1.set_ylabel('资产价值 (USDT)')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. 收益率对比
+    ax2 = axes[0, 1]
+    strategy_names = list(strategy_results.keys())
+    returns = [results.get('return_pct', 0) for results in strategy_results.values()]
+    bars = ax2.bar(strategy_names, returns, color=[colors.get(name, 'gray') for name in strategy_names])
+    ax2.set_title('总收益率对比', fontweight='bold')
+    ax2.set_ylabel('收益率 (%)')
+    ax2.grid(True, alpha=0.3, axis='y')
+    
+    # 在柱子上显示数值
+    for bar, return_val in zip(bars, returns):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height,
+                f'{return_val:.1f}%', ha='center', va='bottom')
+    
+    # 3. 风险指标对比
+    ax3 = axes[1, 0]
+    sharpe_ratios = [results.get('sharpe_ratio', 0) for results in strategy_results.values()]
+    max_drawdowns = [results.get('max_drawdown', 0) for results in strategy_results.values()]
+    
+    x = np.arange(len(strategy_names))
+    width = 0.35
+    
+    bars1 = ax3.bar(x - width/2, sharpe_ratios, width, label='夏普比率', color='lightblue')
+    bars2 = ax3.bar(x + width/2, [-dd for dd in max_drawdowns], width, label='最大回撤 (%)', color='lightcoral')
+    
+    ax3.set_title('风险收益指标对比', fontweight='bold')
+    ax3.set_ylabel('指标值')
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(strategy_names)
+    ax3.legend()
+    ax3.grid(True, alpha=0.3, axis='y')
+    ax3.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    
+    # 4. 交易统计对比
+    ax4 = axes[1, 1]
+    total_trades = [results.get('total_trades', 0) for results in strategy_results.values()]
+    win_rates = [results.get('win_rate', 0) * 100 for results in strategy_results.values()]
+    
+    ax4_twin = ax4.twinx()
+    
+    bars1 = ax4.bar([i - 0.2 for i in range(len(strategy_names))], total_trades, 
+                    width=0.4, label='交易次数', color='steelblue', alpha=0.7)
+    bars2 = ax4_twin.bar([i + 0.2 for i in range(len(strategy_names))], win_rates, 
+                         width=0.4, label='胜率 (%)', color='orange', alpha=0.7)
+    
+    ax4.set_title('交易统计对比', fontweight='bold')
+    ax4.set_xlabel('策略')
+    ax4.set_ylabel('交易次数')
+    ax4_twin.set_ylabel('胜率 (%)')
+    ax4.set_xticks(range(len(strategy_names)))
+    ax4.set_xticklabels(strategy_names)
+    
+    # 合并图例
+    lines1, labels1 = ax4.get_legend_handles_labels()
+    lines2, labels2 = ax4_twin.get_legend_handles_labels()
+    ax4.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+    
+    ax4.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    output_manager.save_chart('portfolio_comparison.png')
 
 
 def plot_adaptive_analysis(analysis_data, output_manager: RunOutputManager):
@@ -360,7 +573,7 @@ def main():
     print(f"✅ 成功获取 {len(data)} 条数据")
     
     # 2. 策略对比
-    traditional_results, adaptive_results, enhanced_results, enhanced_analyzer = compare_strategies(data)
+    traditional_results, adaptive_results, enhanced_results, traditional_analyzer, adaptive_analyzer, enhanced_analyzer = compare_strategies(data)
     
     # 3. 提取和整理指标
     print("\n3. 正在提取性能指标...")
@@ -420,6 +633,23 @@ def main():
     
     # 5. 生成图表
     print("\n5. 正在生成分析图表...")
+    
+    # 绘制每个策略的单独资产变化图表
+    print("正在生成各策略资产变化图表...")
+    analyzers = {
+        '传统策略': traditional_analyzer,
+        '自适应策略': adaptive_analyzer,
+        '增强策略': enhanced_analyzer
+    }
+    plot_individual_strategy_portfolios(analyzers, output_manager)
+    
+    # 绘制策略资产变化对比图表
+    strategy_results_for_plot = {
+        '传统策略': traditional_results,
+        '自适应策略': adaptive_results,
+        '增强策略': enhanced_results
+    }
+    plot_portfolio_comparison(strategy_results_for_plot, output_manager)
     
     if not factor_data.empty:
         # 绘制自适应策略分析图表

@@ -382,6 +382,9 @@ class AdaptiveFactorAnalyzer:
         self.cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
         self.cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
         self.cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
+        # 导入并使用资产组合价值分析器
+        from .factor_strategy import PortfolioValueAnalyzer
+        self.cerebro.addanalyzer(PortfolioValueAnalyzer, _name='portfolio_value')
         
         print(f'初始资金: {self.cerebro.broker.getvalue():.2f}')
         
@@ -405,6 +408,7 @@ class AdaptiveFactorAnalyzer:
         if results:
             strategy = results[0]
             trade_analysis = strategy.analyzers.trades.get_analysis()
+            portfolio_analysis = strategy.analyzers.portfolio_value.get_analysis()
             
             # 计算胜率
             total_closed_trades = trade_analysis.get('total', {}).get('closed', 0)
@@ -417,6 +421,7 @@ class AdaptiveFactorAnalyzer:
                 'total_trades': trade_analysis.get('total', {}).get('total', 0),
                 'win_rate': win_rate,
                 'strategy_instance': strategy,  # 保存策略实例以供后续分析使用
+                'portfolio_history': portfolio_analysis,  # 资产变化历史
             })
         
         else:
@@ -436,9 +441,12 @@ class AdaptiveFactorAnalyzer:
             return self.strategy_instance.get_analysis_data()
         return {}
     
-    def plot_results(self):
-        """绘制结果"""
-        self.cerebro.plot(style='candlestick', volume=False)
+    def get_portfolio_history(self):
+        """获取资产变化历史数据"""
+        if hasattr(self, 'strategy_instance') and self.strategy_instance:
+            portfolio_analysis = self.strategy_instance.analyzers.portfolio_value.get_analysis()
+            return portfolio_analysis
+        return {'dates': [], 'portfolio_values': []}
 
 
 if __name__ == "__main__":
